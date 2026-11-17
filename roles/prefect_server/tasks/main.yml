@@ -1,0 +1,94 @@
+---
+# setup_prefect-server: a Prefect server run by systemd under its own account.
+
+# Replaces funcs-setup-instance.sh L229
+- name: Create the prefect group
+  ansible.builtin.group:
+    name: prefect
+    system: true
+
+# Replaces funcs-setup-instance.sh L230
+- name: Create the prefect service account
+  ansible.builtin.user:
+    name: prefect
+    system: true
+    group: prefect
+    shell: /sbin/nologin
+    comment: Prefect Service Account
+    create_home: false
+
+# Replaces funcs-setup-instance.sh L231-L232
+# mkdir -p makes the parent as root; only the last directory is given away.
+- name: Create the directory that holds the server's state
+  ansible.builtin.file:
+    path: "{{ prefect_server_home }}"
+    state: directory
+    mode: "0755"
+
+# Replaces funcs-setup-instance.sh L231-L232
+- name: Give the state directory to the prefect account
+  ansible.builtin.file:
+    path: "{{ prefect_server_home }}/.prefect"
+    state: directory
+    owner: prefect
+    group: prefect
+    mode: "0755"
+
+# Replaces funcs-setup-instance.sh L234-L235
+- name: Create the directory for the server's virtual environment
+  ansible.builtin.file:
+    path: "{{ prefect_server_venv | dirname }}"
+    state: directory
+    owner: prefect
+    group: prefect
+    mode: "0755"
+
+# Replaces funcs-setup-instance.sh L238
+- name: Create the virtual environment
+  ansible.builtin.command:
+    cmd: "python3 -m venv {{ prefect_server_venv }}"
+    creates: "{{ prefect_server_venv }}/bin/pip"
+  become: true
+  become_user: prefect
+
+# Replaces funcs-setup-instance.sh L239
+- name: Upgrade pip in the virtual environment
+  ansible.builtin.command:
+    argv:
+      - "{{ prefect_server_venv }}/bin/pip"
+      - install
+      - --upgrade
+      - pip
+  become: true
+  become_user: prefect
+  register: prefect_server_pip
+  changed_when: "'Successfully installed' in prefect_server_pip.stdout"
+
+# Replaces funcs-setup-instance.sh L240
+# The script's command, plus the FastAPI limit from defaults/main.yml, without
+# which the server does not start.
+- name: Install Prefect in the virtual environment
+  ansible.builtin.command:
+    argv: >-
+      {{ [prefect_server_venv ~ '/bin/pip', 'install', 'prefect==' ~ prefect_version]
+      + prefect_server_extra_requirements }}
+  become: true
+  become_user: prefect
+  register: prefect_server_install
+  changed_when: "'Successfully installed' in prefect_server_install.stdout"
+
+# Replaces funcs-setup-instance.sh L245
+- name: Install the systemd unit
+  ansible.builtin.copy:
+    src: prefect-server.service
+    dest: /etc/systemd/system/prefect-server.service
+    mode: "0644"
+  register: prefect_server_unit
+
+# Replaces funcs-setup-instance.sh L246-L248
+- name: Enable and start the server
+  ansible.builtin.systemd_service:
+    name: prefect-server
+    daemon_reload: "{{ prefect_server_unit is changed }}"
+    enabled: true
+    state: started

@@ -1,0 +1,6 @@
+---
+mpi_ssh_key: "{{ sandbox_user_home }}/.ssh/id_rsa"
+
+# The script appends its host rules to /etc/ssh/ssh_config. That file reads
+# everything in this directory first, so the same rules go here as a file.
+mpi_ssh_rules_file: /etc/ssh/ssh_config.d/sandbox-local-net.conf

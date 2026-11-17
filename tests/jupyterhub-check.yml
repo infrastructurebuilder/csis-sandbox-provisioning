@@ -1,0 +1,14 @@
+---
+# Used by tests/test_ops_parity.py: applies the jupyterhub role's check alone,
+# with whatever the test passes. It changes nothing.
+
+- name: Check JupyterHub's site settings, as the role does first
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+  vars_files:
+    - ../roles/jupyterhub/defaults/main.yml
+  tasks:
+    - name: Apply the role's check
+      ansible.builtin.include_tasks: ../roles/jupyterhub/tasks/check.yml

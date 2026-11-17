@@ -1,0 +1,166 @@
+---
+# The end of scripts/setup-instance.sh: turn this head node's root volume into
+# the machine image that compute nodes boot from.
+#
+#   ansible-playbook node-image.yml -e ami_name=<a name not used before>
+#
+# The script does this with create_image.sh and create_image.py. Here it is
+# done with the amazon.aws collection (see requirements.yml), by the operator's
+# decision. The steps are the same: snapshot the root volume while the node
+# runs, wait for the snapshot, register an image from it.
+#
+# What differs from the script, on purpose:
+# - The region comes from the instance's metadata. create_image.py uses
+#   us-east-2 whatever the node's region is.
+# - Only the root volume is snapshotted. The script asks for a snapshot of
+#   every attached volume and then uses the first one in the reply.
+# - An image that already has this name is left alone, so running the play
+#   twice with one name makes one image. The script fails on the second run.
+# - The Prefect server is started again even when a step fails.
+
+- name: Register the compute-node image from this head node
+  hosts: sandbox_head
+  become: true
+  gather_facts: true
+
+  vars:
+    # create_image.sh L30
+    node_image_name: "{{ ami_name }}-Node"
+    # create_image.py L91 L135
+    node_image_root_device: /dev/sda1
+    node_image_volume_type: gp3
+    # create_image.py L99-L119: five waits of ten minutes
+    node_image_snapshot_timeout: 3000
+
+  tasks:
+    # Replaces setup-instance.sh L52
+    - name: Empty Spack's caches
+      ansible.builtin.command:
+        cmd: "{{ spack_exe }} clean --all"
+      become: true
+      become_user: "{{ sandbox_user }}"
+      changed_when: false
+
+    # Replaces setup-instance.sh L53
+    - name: Empty the package manager's caches
+      ansible.builtin.command:
+        cmd: dnf clean all
+      changed_when: false
+
+    # Replaces create_image.sh L8-L16
+    - name: Ask the instance who and where it is
+      amazon.aws.ec2_metadata_facts:
+
+    # Replaces create_image.sh L18-L31
+    - name: Say what the image will be called
+      ansible.builtin.debug:
+        msg: >-
+          instance_id: {{ ansible_ec2_instance_id }};
+          region: {{ ansible_ec2_placement_region }};
+          Node image_name: {{ node_image_name }};
+          project_tag: {{ project_tag }}
+
+    # New: image names must be unique, and the script fails when one is reused.
+    - name: Look for an image that already has this name
+      amazon.aws.ec2_ami_info:
+        region: "{{ ansible_ec2_placement_region }}"
+        owners: self
+        filters:
+          name: "{{ node_image_name }}"
+      become: true
+      become_user: "{{ sandbox_user }}"
+      register: node_image_existing
+
+    # Replaces setup-instance.sh L71
+    # The steps are grouped so that the Prefect server is started again
+    # whatever happens to them.
+    - name: Create the image, with the Prefect server stopped
+      when: node_image_existing.images | length == 0
+      block:
+        # Replaces setup-instance.sh L68-L69
+        - name: Stop and disable the Prefect server
+          ansible.builtin.systemd_service:
+            name: prefect-server
+            state: stopped
+            enabled: false
+
+        # Replaces create_image.sh L37
+        - name: Flush the disk cache
+          ansible.builtin.command:
+            cmd: sync
+          changed_when: false
+
+        # New: the script lets AWS choose the volumes. This finds the root one.
+        - name: Find the root volume
+          amazon.aws.ec2_instance_info:
+            region: "{{ ansible_ec2_placement_region }}"
+            instance_ids:
+              - "{{ ansible_ec2_instance_id }}"
+          become: true
+          become_user: "{{ sandbox_user }}"
+          register: node_image_instance
+
+        # Replaces create_image.py L42-L75 L99-L124
+        - name: Snapshot the root volume and wait for it
+          amazon.aws.ec2_snapshot:
+            region: "{{ ansible_ec2_placement_region }}"
+            volume_id: >-
+              {{ node_image_instance.instances[0].block_device_mappings
+              | selectattr('device_name', 'equalto', node_image_instance.instances[0].root_device_name)
+              | map(attribute='ebs.volume_id') | first }}
+            description: Created by IOOS Cloud Sandbox for AMI
+            snapshot_tags:
+              Name: "{{ node_image_name }}"
+              Project: "{{ project_tag }}"
+            wait: true
+            wait_timeout: "{{ node_image_snapshot_timeout }}"
+          become: true
+          become_user: "{{ sandbox_user }}"
+          register: node_image_snapshot
+
+        # Replaces create_image.py L78-L97 L126-L152
+        - name: Register the image from the snapshot
+          amazon.aws.ec2_ami:
+            region: "{{ ansible_ec2_placement_region }}"
+            name: "{{ node_image_name }}"
+            description: "Created by IOOS Cloud Sandbox from snapshot: {{ node_image_snapshot.snapshot_id }}"
+            architecture: x86_64
+            virtualization_type: hvm
+            enhanced_networking: true
+            root_device_name: "{{ node_image_root_device }}"
+            device_mapping:
+              - device_name: "{{ node_image_root_device }}"
+                snapshot_id: "{{ node_image_snapshot.snapshot_id }}"
+                delete_on_termination: true
+                volume_type: "{{ node_image_volume_type }}"
+            tags:
+              Name: "{{ node_image_name }}"
+            state: present
+            wait: true
+          become: true
+          become_user: "{{ sandbox_user }}"
+          register: node_image_registered
+
+        # Replaces create_image.sh L39-L43
+        - name: Keep the image id in the login user's home
+          ansible.builtin.copy:
+            content: "{{ node_image_registered.image_id }}\n"
+            dest: "{{ sandbox_user_home }}/image-id-{{ now(utc=true, fmt='%Y%m%d_%H-%M') }}"
+            owner: "{{ sandbox_user }}"
+            group: "{{ sandbox_user }}"
+            mode: "0644"
+
+      always:
+        # Replaces setup-instance.sh L74-L75
+        - name: Enable and start the Prefect server again
+          ansible.builtin.systemd_service:
+            name: prefect-server
+            enabled: true
+            state: started
+
+    # Replaces create_image.sh L42
+    - name: Say which image compute nodes should use
+      ansible.builtin.debug:
+        msg: >-
+          AMI Image ID is:
+          {{ node_image_registered.image_id | default(node_image_existing.images[0].image_id | default('unknown')) }}

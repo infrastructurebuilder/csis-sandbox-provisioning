@@ -1,0 +1,31 @@
+---
+# Used by tests/test_ops_parity.py and tests/test_spack_yaml.py: renders the
+# templates of the stage 7 roles and the environment's spack.yaml (stage 9)
+# into a directory, with the roles' defaults and whatever the test
+# passes with -e, so that they can be compared with the files they replace.
+# It changes nothing but that directory.
+
+- name: Render the templates of sandbox_users, jupyterhub and spack_environment
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+  vars_files:
+    - ../group_vars/all.yml
+    - ../roles/sandbox_users/defaults/main.yml
+    - ../roles/jupyterhub/defaults/main.yml
+    - ../roles/spack_environment/defaults/main.yml
+
+  tasks:
+    - name: Render each template
+      ansible.builtin.template:
+        src: "../roles/{{ item }}"
+        dest: "{{ render_out }}/{{ item | basename | regex_replace('\\.j2$', '') }}"
+        mode: "0644"
+      loop:
+        - jupyterhub/templates/jupyterhub_config.py.j2
+        - jupyterhub/templates/jupyterhub.conf.j2
+        - jupyterhub/templates/jupytersudoers.j2
+        - sandbox_users/templates/sandbox-modelers.sudoers.j2
+        - sandbox_users/templates/spack-config.yaml.j2
+        - spack_environment/templates/spack.yaml.j2

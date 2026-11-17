@@ -1,0 +1,21 @@
+---
+# New: (stage 13) what only a site can say has no default; refuse to install
+# anything until it is given. Included first by main.yml; the tests apply it
+# alone.
+- name: Check that the site has given what only it can say
+  ansible.builtin.assert:
+    that: jupyterhub_missing | length == 0
+    fail_msg: >-
+      JupyterHub needs these from the site, and they are not set:
+      {{ jupyterhub_missing | join(', ') }}. See sandbox-provisioning's
+      README.md, "JupyterHub, if a site wants it".
+    quiet: true
+  vars:
+    jupyterhub_missing: >-
+      {%- set missing = [] -%}
+      {%- for name in jupyterhub_required_variables -%}
+      {%- if lookup('ansible.builtin.vars', name, default='') | string | trim == '' -%}
+      {%- set _ = missing.append(name) -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ missing }}

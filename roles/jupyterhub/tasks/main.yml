@@ -1,0 +1,207 @@
+---
+# JupyterHub: what scripts/install_conda_jupyterhub.sh does, with the files
+# under scripts/system/ it installs.
+#
+# Two install scripts exist. This one is translated because the service file,
+# the run script and jupyterhub/README.md all describe it: conda in /opt/conda,
+# the hub's files in /etc/jupyterhub, the sudospawner. The other,
+# install_jupyterhub.sh (a pip environment in /opt/jupyterhub, Node.js 16 and
+# Anaconda 2022.05), is kept in legacy/ and not carried; see
+# tests/not_carried.yml.
+
+# New: (stage 13) the site's settings are checked before anything is done.
+- name: Check the site's settings
+  ansible.builtin.include_tasks: check.yml
+
+# Replaces install_conda_jupyterhub.sh L4
+- name: Install nginx
+  ansible.builtin.dnf:
+    name: nginx
+    state: present
+
+# Replaces install_conda_jupyterhub.sh L5
+- name: Configure nginx as the hub's TLS front
+  ansible.builtin.template:
+    src: jupyterhub.conf.j2
+    dest: /etc/nginx/conf.d/jupyterhub.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload nginx
+
+# Replaces install_conda_jupyterhub.sh L6-L7
+- name: Look for the TLS certificate and key
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop: ["{{ jupyterhub_ssl_certificate }}", "{{ jupyterhub_ssl_certificate_key }}"]
+  register: jupyterhub_tls
+
+# Replaces install_conda_jupyterhub.sh L8-L9
+# The script starts nginx whether or not the certificates are there (its TODO
+# at L6 says to copy them), and nginx then fails to start. Here it is enabled
+# either way and started only when both files exist.
+- name: Enable nginx, and start it when the certificates are in place
+  ansible.builtin.systemd_service:
+    name: nginx
+    enabled: true
+    state: "{{ (jupyterhub_tls.results | map(attribute='stat.exists') is all) | ternary('started', omit) }}"
+
+# Replaces install_conda_jupyterhub.sh L12-L13
+# Miniforge in place of Miniconda: see the defaults.
+- name: Download the conda installer
+  ansible.builtin.get_url:
+    url: "{{ jupyterhub_conda_installer_url }}"
+    dest: "/tmp/{{ jupyterhub_conda_installer }}"
+    mode: "0644"
+  when: not (jupyterhub_conda_prefix ~ '/bin/conda') is file
+
+# Replaces install_conda_jupyterhub.sh L14
+- name: Install conda
+  ansible.builtin.command:
+    argv: [bash, "/tmp/{{ jupyterhub_conda_installer }}", -b, -p, "{{ jupyterhub_conda_prefix }}"]
+    creates: "{{ jupyterhub_conda_prefix }}/bin/conda"
+
+# Replaces install_conda_jupyterhub.sh L15
+- name: Set up conda for every login shell
+  ansible.builtin.file:
+    src: "{{ jupyterhub_conda_prefix }}/etc/profile.d/conda.sh"
+    dest: /etc/profile.d/conda.sh
+    state: link
+    force: true
+
+# Replaces install_conda_jupyterhub.sh L18
+# find picks out only what is not so yet: the file module walks and checks
+# every file each run, which took 25 minutes in the container test once the
+# hub was installed.
+- name: Let every user change the conda environments
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      find {{ jupyterhub_conda_prefix | quote }}/envs
+      \( ! -perm -a=rw -o \( -type d ! -perm -a=x \) \)
+      -print -exec chmod a+rwX {} + | wc -l
+  register: jupyterhub_envs_mode
+  changed_when: jupyterhub_envs_mode.stdout | int > 0
+
+# Replaces install_conda_jupyterhub.sh L19
+# The script writes ec2-user/ec2-user, which chown reads as one user name
+# that does not exist, so ownership never changes.
+- name: Give the conda installation to its owner
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      find {{ jupyterhub_conda_prefix | quote }}
+      \( ! -user {{ jupyterhub_conda_owner | quote }} -o ! -group {{ jupyterhub_conda_owner | quote }} \)
+      -print -exec chown -h {{ (jupyterhub_conda_owner ~ ':' ~ jupyterhub_conda_owner) | quote }} {} + | wc -l
+  register: jupyterhub_conda_chown
+  changed_when: jupyterhub_conda_chown.stdout | int > 0
+
+# Replaces install_conda_jupyterhub.sh L22-L23
+# `conda activate` in a script that has not run conda's shell hook fails; the
+# conda command is called by its path instead, as the owner, as L19 intends.
+- name: Install JupyterHub, its OAuth authenticator and the sudo spawner from conda-forge
+  ansible.builtin.command:
+    argv: "{{ [jupyterhub_conda_prefix ~ '/bin/conda', 'install', '--yes', '--name', 'base', '--channel', 'conda-forge']
+              + jupyterhub_conda_forge_packages }}"
+  become: true
+  become_user: "{{ jupyterhub_conda_owner }}"
+  register: jupyterhub_conda_forge
+  changed_when: "'All requested packages already installed' not in jupyterhub_conda_forge.stdout"
+
+# Replaces install_conda_jupyterhub.sh L25
+- name: Install JupyterLab, the notebook server and nb_conda_kernels
+  ansible.builtin.command:
+    argv: "{{ [jupyterhub_conda_prefix ~ '/bin/conda', 'install', '--yes', '--name', 'base'] + jupyterhub_conda_packages }}"
+  become: true
+  become_user: "{{ jupyterhub_conda_owner }}"
+  register: jupyterhub_conda
+  changed_when: "'All requested packages already installed' not in jupyterhub_conda.stdout"
+
+# Replaces install_conda_jupyterhub.sh L29
+- name: Create the group of the hub's users
+  ansible.builtin.group:
+    name: "{{ jupyterhub_group }}"
+
+# Replaces install_conda_jupyterhub.sh L28 L30
+- name: Create the system user that runs the hub
+  ansible.builtin.user:
+    name: "{{ jupyterhub_user }}"
+    groups: ["{{ jupyterhub_group }}"]
+    append: true
+
+# Replaces install_conda_jupyterhub.sh L32
+- name: Let the hub start servers for its users
+  ansible.builtin.template:
+    src: jupytersudoers.j2
+    dest: /etc/sudoers.d/jupytersudoers
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+
+# Replaces install_conda_jupyterhub.sh L35-L36
+- name: Create the hub's directory
+  ansible.builtin.file:
+    path: "{{ jupyterhub_config_dir }}"
+    state: directory
+    owner: "{{ jupyterhub_user }}"
+    mode: "0755"
+
+# Replaces install_conda_jupyterhub.sh L37
+# The script copies the file to /opt/jupyterhub/, where nothing reads it: the
+# run script, the service and the README all use /etc/jupyterhub/.
+- name: Write the hub's configuration
+  ansible.builtin.template:
+    src: jupyterhub_config.py.j2
+    dest: "{{ jupyterhub_config_dir }}/jupyterhub_config.py"
+    owner: "{{ jupyterhub_user }}"
+    group: root
+    mode: "0640"
+  notify: Restart jupyterhub
+
+# New: the service runs /etc/jupyterhub/runJupyterhub.sh, which the script
+# never puts there.
+- name: Put the run script where the service looks for it
+  ansible.builtin.copy:
+    src: runJupyterhub.sh
+    dest: "{{ jupyterhub_config_dir }}/runJupyterhub.sh"
+    owner: "{{ jupyterhub_user }}"
+    group: root
+    mode: "0755"
+  notify: Restart jupyterhub
+
+# Replaces install_conda_jupyterhub.sh L41 L43
+# The script then changes the owner of /etc/jupyter/service, a directory that
+# does not exist.
+- name: Create the directory for the service file
+  ansible.builtin.file:
+    path: "{{ jupyterhub_config_dir }}/service"
+    state: directory
+    owner: "{{ jupyterhub_user }}"
+    mode: "0755"
+
+# Replaces install_conda_jupyterhub.sh L42
+- name: Install the service file
+  ansible.builtin.copy:
+    src: jupyterhub.service
+    dest: "{{ jupyterhub_config_dir }}/service/jupyterhub.service"
+    owner: "{{ jupyterhub_user }}"
+    group: root
+    mode: "0644"
+  notify: Restart jupyterhub
+
+# Replaces install_conda_jupyterhub.sh L44
+- name: Link it into systemd
+  ansible.builtin.file:
+    src: "{{ jupyterhub_config_dir }}/service/jupyterhub.service"
+    dest: /etc/systemd/system/jupyterhub.service
+    state: link
+  notify: Restart jupyterhub
+
+# Replaces install_conda_jupyterhub.sh L45-L47
+- name: Enable and start the hub
+  ansible.builtin.systemd_service:
+    name: jupyterhub
+    daemon_reload: true
+    enabled: true
+    state: started

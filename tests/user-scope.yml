@@ -1,0 +1,19 @@
+---
+# Used by tests/test_user_scope.py: applies the spack role's user_scope.yml
+# alone, against scope files the test writes, and writes what it decided to
+# a file. It reads files only.
+
+- name: Work out the login user's leftovers, as the spack role does
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+  tasks:
+    - name: Apply the role's task file
+      ansible.builtin.include_tasks: ../roles/spack/tasks/user_scope.yml
+
+    - name: Keep what it decided
+      ansible.builtin.copy:
+        content: "{{ spack_user_scope | to_json }}"
+        dest: "{{ user_scope_out }}"
+        mode: "0644"

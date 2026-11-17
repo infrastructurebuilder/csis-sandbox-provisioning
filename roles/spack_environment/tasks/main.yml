@@ -1,0 +1,107 @@
+---
+# create_spack-environment and build_spack-environment: the Spack environment
+# that holds ESMF and PETSc, and its module files.
+#
+# In the script the Intel modules loaded by install_intel_oneapi_dnf are still
+# loaded when these two functions run, because all the functions share one
+# shell. Every Spack step here loads them first, for the same surroundings.
+# Spack is called with "-e <environment>" where the script activates the
+# environment and then calls it.
+
+# Replaces funcs-setup-instance.sh L744
+- name: Look for the save directory
+  ansible.builtin.stat:
+    path: "{{ sandbox_save_dir }}"
+  register: spack_environment_save
+
+# Replaces funcs-setup-instance.sh L744-L747
+- name: Say so when there is nowhere to put the environment
+  ansible.builtin.debug:
+    msg: "{{ sandbox_save_dir }} does not exist. Setup the paths first."
+  when: not spack_environment_save.stat.exists
+
+# Replaces funcs-setup-instance.sh L749-L753
+# The script's "env create" fails on a second run because the environment
+# exists. Here it is created when its spack.yaml is missing.
+- name: Create the Spack environment
+  ansible.builtin.command:
+    cmd: "{{ spack_exe }} env create {{ spack_environment_dir }}"
+    creates: "{{ spack_environment_dir }}/spack.yaml"
+  become: true
+  become_user: "{{ sandbox_user }}"
+  when: spack_environment_save.stat.exists
+
+# Replaces funcs-setup-instance.sh L754-L762 L775-L806
+# The script configures the environment and adds its specs with one Spack
+# command each. Here spack.yaml is written whole from a template (stage 9),
+# so Ansible reports the change itself and --check and --diff work. The Intel
+# modules the script has loaded at that point play no part in writing a file.
+- name: Write the environment's spack.yaml
+  ansible.builtin.template:
+    src: spack.yaml.j2
+    dest: "{{ spack_environment_dir }}/spack.yaml"
+    mode: "0644"
+    backup: true
+  become: true
+  become_user: "{{ sandbox_user }}"
+  when: spack_environment_save.stat.exists
+
+# New: the collection's spack_env module runs Spack without a shell, so the
+# Intel modules that the script has loaded at this point (see the top of this
+# file) are loaded once here, in bash, and what they change in the
+# environment is handed to the module. Only what changed is kept: the
+# module-system variables and what "module load" sets.
+- name: Work out the environment the Intel modules give Spack
+  ansible.builtin.shell:
+    cmd: |
+      environment() { python3 -c 'import json, os; print(json.dumps(dict(os.environ)))'; }
+      before=$(environment)
+      {{ sandbox_modules_init }}
+      set -eo pipefail
+      {{ sandbox_load_intel_modules }}
+      environment | python3 -c '
+      import json, sys
+      before, after = json.loads(sys.argv[1]), json.load(sys.stdin)
+      skip = {"_", "SHLVL", "PWD", "OLDPWD"}
+      print(json.dumps({k: v for k, v in after.items()
+                        if before.get(k) != v and k not in skip and not k.startswith("BASH_FUNC_")}))
+      ' "$before"
+    executable: /bin/bash
+  become: true
+  become_user: "{{ sandbox_user }}"
+  register: spack_environment_intel
+  changed_when: false
+  check_mode: false
+
+# Replaces funcs-setup-instance.sh L812 L817 L820-L822
+# One task for the script's concretize, install and module refresh, through
+# the infrastructurebuilder.csis_spack collection (stage 10). It reports a
+# change when spack.lock changes, when a spec is installed, and when module
+# files change, leaving out the time Spack writes into each of them; the
+# shell tasks this replaces reported the module files changed on every run.
+# Check mode concretizes a copy and says what would be installed.
+# The script keeps the concretizer's output in log.concretize; the module
+# does not write it. The build's output goes to log.install, as before.
+- name: Concretize, build and install the environment, and regenerate its module files (hours, the first time)
+  infrastructurebuilder.csis_spack.spack_env:
+    path: "{{ spack_environment_dir }}"
+    spack: "{{ spack_exe }}"
+    state: "{{ spack_environment_state }}"
+    fresh: true
+    install_args: "{{ spack_opts.split() }}"
+    modules: [tcl]
+    # The script regenerates the module files on every run. Here they are
+    # regenerated when something was concretized or installed, or when
+    # spack.lock, the modules configuration or the files themselves have
+    # changed since (stage 11, decision 1): a second run touches none of them,
+    # and a file deleted or edited by hand is still put back.
+    refresh_modules: when_needed
+    delete_tree: true
+    log_file: "{{ spack_environment_dir }}/log.install"
+  environment: "{{ spack_environment_intel.stdout | from_json }}"
+  become: true
+  become_user: "{{ sandbox_user }}"
+  # Ansible refuses a task that is both asynchronous and in check mode. A
+  # preview builds nothing and is over in a minute, so it runs as it is.
+  async: "{{ 0 if ansible_check_mode else spack_environment_build_timeout }}"
+  poll: "{{ 0 if ansible_check_mode else 60 }}"

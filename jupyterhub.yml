@@ -1,0 +1,21 @@
+---
+# JupyterHub on the head node: what scripts/install_conda_jupyterhub.sh does,
+# as the jupyterhub role. Run after site.yml, by hand, where a site wants it:
+#
+#   ansible-playbook jupyterhub.yml -e @/path/to/site-jupyterhub.yml
+#
+# The site's file gives the host name, the certificate paths and the Google
+# OAuth client; see roles/jupyterhub/defaults/main.yml. Users reach the hub
+# through the jupyterhub group; sandbox_users can put them in it.
+
+- name: Install JupyterHub on the head node
+  hosts: sandbox_head
+  become: true
+  gather_facts: false
+
+  tasks:
+    # New: the script runs as a whole; this is its one step.
+    - name: JupyterHub
+      ansible.builtin.import_role:
+        name: jupyterhub
+      tags: [jupyterhub]

@@ -1,0 +1,15 @@
+---
+# What the container is not: RHEL, and on AWS.
+base_system_subscription_manager: false
+base_system_rhui_client: false
+base_system_crb_repo: crb
+# Concretize the Spack environment, but do not build it (stage 10).
+spack_environment_state: concretized
+# JupyterHub's site settings, which have no default (stage 13). Test values:
+# no certificate is there, so nginx is enabled and not started.
+jupyterhub_server_name: hub.example.invalid
+jupyterhub_oauth_callback_url: https://hub.example.invalid/hub/oauth_callback
+jupyterhub_ssl_certificate: /etc/ssl/hub.example.invalid.crt
+jupyterhub_ssl_certificate_key: /etc/ssl/hub.example.invalid.key
+jupyterhub_admin_users_literal: "{'jupyter'}"
+jupyterhub_username_map_literal: "{}"

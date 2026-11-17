@@ -1,0 +1,46 @@
+---
+# The script is written for RHEL 10 on AWS. These three settings are what ties
+# it to that; a RHEL-compatible host that is not RHEL on AWS turns the first two
+# off and names its own CodeReady Builder repository.
+base_system_subscription_manager: true
+base_system_rhui_client: true
+base_system_crb_repo: codeready-builder-for-rhel-10-rhui-rpms
+
+# The file the script edits so that packages install their documentation.
+base_system_dnf_conf: /etc/dnf.conf
+
+base_system_epel_release_url: https://dl.fedoraproject.org/pub/epel/epel-release-latest-10.noarch.rpm
+base_system_ssm_agent_url: https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm
+
+# In the order the script installs them.
+base_system_packages:
+  - tcsh
+  - ksh
+  - wget
+  - unzip
+  - time
+  - glibc-devel
+  - gcc-c++
+  - patch
+  - bzip2
+  - bzip2-devel
+  - automake
+  - vim-enhanced
+  - subversion
+  - bc
+  - htop
+  - cmake
+  - libcurl-devel
+  - zlib-ng-devel
+  - snappy-devel
+  - libtool
+  - Lmod
+  - tmux
+
+base_system_python_packages:
+  - python3-devel
+  - python3-pip
+  - jq
+
+base_system_awscli_version: "2.35.13"
+base_system_awscli_url: "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-{{ base_system_awscli_version }}.zip"

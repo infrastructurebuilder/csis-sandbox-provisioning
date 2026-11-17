@@ -1,0 +1,130 @@
+---
+# What scripts/setup-instance.sh does, as roles, in the script's order.
+#
+#   ansible-playbook site.yml                      everything
+#   ansible-playbook site.yml --tags efa_driver    one step, on a node that is already built
+#
+# Each role is one function of scripts/funcs-setup-instance.sh, and each task
+# names the lines it replaces. Creating the node image is not part of this
+# play: see node-image.yml.
+
+- name: Build the Cloud Sandbox software stack on a head node
+  hosts: sandbox_head
+  become: true
+  gather_facts: true
+  any_errors_fatal: true
+
+  tasks:
+    # New: the script assumes all of this without checking. The download
+    # addresses in the roles are for this operating system and processor.
+    - name: Check that this is a host the stack was written for
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.os_family == 'RedHat'
+          - ansible_facts.distribution_major_version == '10'
+          - ansible_facts.architecture == 'x86_64'
+        fail_msg: >-
+          The stack is written for RHEL 10 on x86_64; this host is
+          {{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }}
+          on {{ ansible_facts.architecture }}.
+        quiet: true
+      tags: [always]
+
+    # New: the script turns enforcement off on its first line and back on in
+    # its last, and a failure in between leaves it off. Here it is turned back
+    # on whatever happens.
+    - name: Build the stack with SELinux enforcement off, as the script does
+      block:
+        # Replaces setup-instance.sh L14
+        # Nothing lasting is changed: enforcement goes back on below.
+        - name: Turn SELinux enforcement off for the run
+          ansible.builtin.command:
+            cmd: setenforce 0
+          when:
+            - ansible_facts.selinux.status | default('disabled') == 'enabled'
+            - ansible_facts.selinux.mode | default('') == 'enforcing'
+          changed_when: false
+          tags: [always]
+
+        # Replaces setup-instance.sh L19
+        - name: Scratch and result directories
+          ansible.builtin.import_role:
+            name: sandbox_paths
+          tags: [sandbox_paths]
+
+        # Replaces setup-instance.sh L20
+        - name: The login user's shell
+          ansible.builtin.import_role:
+            name: user_shell
+          tags: [user_shell]
+
+        # Replaces setup-instance.sh L21
+        - name: Base packages and tools
+          ansible.builtin.import_role:
+            name: base_system
+          tags: [base_system]
+
+        # Replaces setup-instance.sh L24
+        - name: Prefect server
+          ansible.builtin.import_role:
+            name: prefect_server
+          tags: [prefect_server]
+
+        # Replaces setup-instance.sh L27
+        - name: Keys and host rules for MPI
+          ansible.builtin.import_role:
+            name: mpi_ssh
+          tags: [mpi_ssh]
+
+        # Replaces setup-instance.sh L29
+        - name: EFA driver
+          ansible.builtin.import_role:
+            name: efa_driver
+          tags: [efa_driver]
+
+        # Replaces setup-instance.sh L30
+        - name: Lustre client
+          ansible.builtin.import_role:
+            name: fsx_lustre_client
+          tags: [fsx_lustre_client]
+
+        # Replaces setup-instance.sh L33
+        - name: Python packages for the login user
+          ansible.builtin.import_role:
+            name: python_user_env
+          tags: [python_user_env]
+
+        # Replaces setup-instance.sh L35
+        - name: Spack
+          ansible.builtin.import_role:
+            name: spack
+          tags: [spack]
+
+        # Replaces setup-instance.sh L41
+        - name: Intel compilers, MKL and MPI
+          ansible.builtin.import_role:
+            name: intel_oneapi
+          tags: [intel_oneapi]
+
+        # Replaces setup-instance.sh L43 L45
+        - name: The Spack environment with ESMF and PETSc
+          ansible.builtin.import_role:
+            name: spack_environment
+          tags: [spack_environment]
+
+        # Replaces setup-instance.sh L47
+        - name: Tuning for HPC instance types
+          ansible.builtin.import_role:
+            name: hpc_tuning
+          tags: [hpc_tuning]
+
+      always:
+        # Replaces setup-instance.sh L77
+        - name: Turn SELinux enforcement back on
+          ansible.builtin.command:
+            cmd: setenforce 1
+          when:
+            - ansible_facts.selinux.status | default('disabled') == 'enabled'
+            - ansible_facts.selinux.mode | default('') == 'enforcing'
+          changed_when: false
+          tags: [always]

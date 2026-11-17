@@ -1,0 +1,18 @@
+---
+# The script means to choose between a minimal install (the kernel driver
+# only, plus the AWS libfabric package) and a full one (with AWS's Open MPI).
+# It sets a misspelt variable and tests another, so the minimal install is
+# what always runs. That outcome is the default here.
+efa_driver_minimal: true
+
+efa_driver_url: "https://s3-us-west-2.amazonaws.com/aws-efa-installer/aws-efa-installer-{{ efa_installer_version }}.tar.gz"
+efa_driver_workdir: "{{ sandbox_user_home }}/efadriver"
+
+# Where the installer keeps its packages for this operating system.
+efa_driver_rpm_dir: RPMS/RHEL10/x86_64
+
+# The installer records what it installed here. If the record names this
+# version the installer is not run again. The format of the record was not
+# checked against a real install; if it is different, the only effect is that
+# the installer runs on every apply, which is what the script does.
+efa_driver_record: /opt/amazon/efa_installed_packages

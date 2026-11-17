@@ -1,0 +1,12 @@
+---
+- name: Reload nginx
+  ansible.builtin.systemd_service:
+    name: nginx
+    state: reloaded
+  when: jupyterhub_tls.results | map(attribute='stat.exists') is all
+
+- name: Restart jupyterhub
+  ansible.builtin.systemd_service:
+    name: jupyterhub
+    daemon_reload: true
+    state: restarted

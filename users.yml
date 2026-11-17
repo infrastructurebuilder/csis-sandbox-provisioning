@@ -1,0 +1,22 @@
+---
+# Add and remove the people who use the sandbox: what scripts/add-users.py
+# and remove-user.sh do, as the sandbox_users role.
+#
+#   ansible-playbook users.yml -e @/path/to/site-users.yml
+#
+# The user list holds names, addresses and keys, so it lives with the site's
+# settings, never in this repository; see roles/sandbox_users/defaults/main.yml
+# for its shape. add-users.py ends by offering to make a new machine image;
+# here that is node-image.yml, run afterwards.
+
+- name: Add and remove the sandbox's users
+  hosts: sandbox_head
+  become: true
+  gather_facts: false
+
+  tasks:
+    # Replaces add-users.py L445-L446
+    - name: The users
+      ansible.builtin.import_role:
+        name: sandbox_users
+      tags: [sandbox_users]

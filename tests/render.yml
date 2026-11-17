@@ -1,0 +1,62 @@
+---
+# Used by tests/test_parity.py: writes out what the variables come to, so that
+# they can be compared with what the scripts compute. It changes nothing but
+# the file it is asked to write.
+
+- name: Write the values the playbooks would use
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+  vars_files:
+    - ../group_vars/all.yml
+    - ../roles/fsx_lustre_client/defaults/main.yml
+    - ../roles/python_user_env/defaults/main.yml
+    - ../roles/base_system/defaults/main.yml
+    - ../roles/intel_oneapi/defaults/main.yml
+    - ../roles/spack_environment/defaults/main.yml
+  vars:
+    fsx_lustre_client_repo:
+      content: "{{ lookup('ansible.builtin.file', render_repo_sample, rstrip=false) }}"
+
+  tasks:
+    - name: Write the values
+      ansible.builtin.copy:
+        dest: "{{ render_out }}"
+        mode: "0644"
+        content: |
+          {{
+            {
+              'PREFECT_VER': prefect_version,
+              'GCC_VER': gcc_version,
+              'GCC_MAJOR': gcc_major,
+              'SPACK_VER': spack_version,
+              'ONEAPI_VER': oneapi_version,
+              'ONEAPI_MAJOR_MINOR': oneapi_major_minor,
+              'INTEL_COMPILER_VER': intel_compiler_version,
+              'INTEL_MPI_VER': intel_mpi_version,
+              'ESMF_VER': esmf_version,
+              'SPACK_DIR': spack_dir,
+              'JOBS': spack_jobs | string,
+              'SPACKOPTS': spack_opts | trim,
+              'target': spack_target,
+              'SPACKTARGET': spack_arch,
+              'EFA_INSTALLER_VER': efa_installer_version,
+              'SPACK_CACHEONLY': spack_cache_only | string,
+              'SPACK_MIRROR': spack_mirror,
+              'SPACK_KEY_URL': spack_key_url,
+              'SPACK_KEY': spack_key,
+              'ami_name': ami_name,
+              'project_tag': project_tag,
+              'fsx_repo_text': fsx_lustre_client_repo_text,
+              'pip': python_user_env_packages,
+              'dnf_base': base_system_packages + base_system_python_packages,
+              'dnf_intel': intel_oneapi_llvm_packages + intel_oneapi_packages,
+              'spack_specs': spack_environment_specs,
+              'spack_config': spack_environment_config,
+              'intel_modules': sandbox_intel_modules,
+              'spack_packages': intel_oneapi_spack_packages,
+              'spack_site_mirror': spack_site_mirror,
+              'spack_key_fingerprint': spack_key_fingerprint,
+            } | to_json
+          }}

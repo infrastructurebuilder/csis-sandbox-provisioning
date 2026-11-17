@@ -1,0 +1,18 @@
+---
+# What install_python_modules_user installs with pip, in its order. `upgrade`
+# is true where the script passes --upgrade.
+python_user_env_packages:
+  - {spec: "prefect=={{ prefect_version }}", upgrade: false}
+  - {spec: pip, upgrade: true}
+  - {spec: wheel, upgrade: true}
+  - {spec: dask, upgrade: true}
+  - {spec: distributed, upgrade: true}
+  - {spec: setuptools_rust, upgrade: true}   # needed for paramiko
+  - {spec: paramiko, upgrade: true}          # needed for dask-ssh
+  - {spec: "botocore>=1.40.22", upgrade: true}
+  - {spec: "boto3>=1.40.22", upgrade: true}
+  - {spec: "matplotlib>=3.10.6", upgrade: true}
+  - {spec: "netCDF4>=1.7.2", upgrade: true}
+  - {spec: "numpy>=2.3.2", upgrade: true}
+  - {spec: "pillow>=12.2.0", upgrade: true}
+  - {spec: "pyproj>=3.7.2", upgrade: true}

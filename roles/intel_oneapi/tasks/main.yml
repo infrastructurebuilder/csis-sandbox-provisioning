@@ -1,0 +1,75 @@
+---
+# install_intel_oneapi_dnf: the Intel compilers, MKL and MPI from Intel's
+# repository, their module files, and Spack told to use them.
+
+# Replaces funcs-setup-instance.sh L891-L899
+# tests/test_parity.py compares this file with the text in the script.
+- name: Add Intel's oneAPI repository
+  ansible.builtin.copy:
+    src: oneAPI.repo
+    dest: /etc/yum.repos.d/oneAPI.repo
+    mode: "0644"
+
+# Replaces funcs-setup-instance.sh L902
+- name: Install the LLVM packages the script installs first
+  ansible.builtin.dnf:
+    name: "{{ intel_oneapi_llvm_packages }}"
+    state: present
+
+# Replaces funcs-setup-instance.sh L904-L909
+- name: Install the Intel compilers, MKL and MPI
+  ansible.builtin.dnf:
+    name: "{{ intel_oneapi_packages }}"
+    state: present
+
+# Replaces funcs-setup-instance.sh L921-L922
+# The script regenerates the module files on every run. Here they are
+# generated when the compiler's module file for this version is missing.
+- name: Generate the module files for oneAPI
+  ansible.builtin.command:
+    cmd: "./modulefiles-setup.sh --force --ignore-latest --output-dir={{ intel_oneapi_modulefiles_dir }}"
+    chdir: "{{ intel_oneapi_root }}"
+    creates: "{{ intel_oneapi_modulefiles_dir }}/compiler/{{ oneapi_version }}"
+
+# New: what the script does to Spack once the compilers are installed is a
+# list of steps for the setup role of the infrastructurebuilder.csis_spack
+# collection (stage 11), applied as the login user. Each step names the
+# lines it replaces.
+- name: Tell Spack about the Intel compilers, MKL and MPI
+  ansible.builtin.include_role:
+    name: infrastructurebuilder.csis_spack.setup
+    apply:
+      become: true
+      become_user: "{{ sandbox_user }}"
+  vars:
+    spack_setup_spack: "{{ spack_exe }}"
+    spack_setup_scope: site
+    spack_setup:
+      # Replaces funcs-setup-instance.sh L919 L928-L934
+      # The only shell left: what makes the compilers visible.
+      - kind: environment
+        name: intel
+        shell: |
+          {{ sandbox_modules_init }}
+          set -eo pipefail
+          {{ sandbox_load_intel_modules }}
+      # Replaces funcs-setup-instance.sh L937
+      # Without the modules Spack finds no Intel compiler and says nothing;
+      # the script would go on. Here that is a failure.
+      - kind: detect
+        compilers: true
+        environment: intel
+        require: ["intel-oneapi-compilers@{{ oneapi_version }}"]
+      # Replaces funcs-setup-instance.sh L709-L732 L941-L949 L951-L955
+      # The function add_spack_site_external appends text to the site's
+      # packages.yaml unless the package's name is there already, so a changed
+      # version or prefix is never corrected. Declared here, it is.
+      # "spack external find" does not detect these two (tried).
+      - kind: config
+        settings:
+          packages: "{{ intel_oneapi_spack_packages }}"
+      # Replaces funcs-setup-instance.sh L959
+      # The script's "mirror add" just before it is not carried: see
+      # tests/not_carried.yml.
+      - kind: gpg_key
+        from_mirrors: true

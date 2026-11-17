@@ -1,0 +1,14 @@
+---
+prefect_server_venv: /opt/prefect/venv
+prefect_server_home: "{{ sandbox_environments_dir }}/prefect"
+
+# Requirements given to pip together with Prefect itself. The script gives
+# none; this one is a deliberate correction (operator's decision, 2026-11-12).
+#
+# On 2026-11-12 the script's install does not produce a working server:
+# pip chooses FastAPI 0.162, and the server of Prefect 3.7.8 fails at start
+# with any FastAPI from 0.155 on ("Body() got an unexpected keyword argument
+# 'min_items'"), then restarts every five seconds for ever. 0.139 to 0.154
+# were seen to work. Set this to [] for exactly the script's install.
+prefect_server_extra_requirements:
+  - "fastapi<0.155"

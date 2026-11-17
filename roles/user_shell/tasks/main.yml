@@ -1,0 +1,49 @@
+---
+# setup_aliases: the login user's aliases, prompt and editor settings.
+#
+# The script guards the tcsh lines with a grep that can never match what it
+# writes, so it appends them again on every run. Here each line is written
+# once.
+
+# Replaces funcs-setup-instance.sh L1526-L1535
+- name: Add the aliases and the prompt for tcsh
+  ansible.builtin.lineinfile:
+    path: "{{ sandbox_user_home }}/.tcshrc"
+    line: "{{ item }}"
+    create: true
+    owner: "{{ sandbox_user }}"
+    group: "{{ sandbox_user }}"
+    mode: "0644"
+  loop:
+    - alias lsl "ls -al"
+    - alias lst "ls -altr"
+    - alias h history
+    - alias cds "cd /save/$USER"
+    - alias cdc "cd /com/$USER"
+    - alias cdpt "cd /ptmp/$USER"
+    - set prompt="[{{ sandbox_prompt_name }}:%~] %n $0> "
+
+# Replaces funcs-setup-instance.sh L1537-L1545
+- name: Add the aliases and the prompt for bash
+  ansible.builtin.lineinfile:
+    path: "{{ sandbox_user_home }}/.bashrc"
+    line: "{{ item }}"
+    create: true
+    owner: "{{ sandbox_user }}"
+    group: "{{ sandbox_user }}"
+    mode: "0644"
+  loop:
+    - alias lsl="ls -al"
+    - alias lst="ls -altr"
+    - alias h="history"
+    - alias cds="cd /save/$USER"
+    - PS1="[{{ sandbox_prompt_name }}:\w] \u> "
+
+# Replaces funcs-setup-instance.sh L1547
+- name: Install the editor settings
+  ansible.builtin.copy:
+    src: vimrc
+    dest: "{{ sandbox_user_home }}/.vimrc"
+    owner: "{{ sandbox_user }}"
+    group: "{{ sandbox_user }}"
+    mode: "0644"

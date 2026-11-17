@@ -1,0 +1,11 @@
+# comma-separated whitelist of users that can spawn single-user servers
+# this should include all of your Hub users
+Runas_Alias JUPYTER_USERS = {{ jupyterhub_spawn_users | join(', ') }}
+# the command(s) the Hub can run on behalf of the above users without needing a password
+# the exact path may differ, depending on how sudospawner was installed
+Cmnd_Alias JUPYTER_CMD = {{ jupyterhub_conda_prefix }}/bin/sudospawner
+# actually give the Hub user permission to run the above command on behalf
+# of the above users without prompting for a password
+#jupyter ALL=(JUPYTER_USERS) NOPASSWD:JUPYTER_CMD
+%{{ jupyterhub_group }} ALL=({{ jupyterhub_user }}) /usr/bin/sudo
+{{ jupyterhub_user }} ALL=(%{{ jupyterhub_group }}) NOPASSWD:JUPYTER_CMD

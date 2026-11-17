@@ -1,0 +1,42 @@
+[project]
+name = "sandbox-provisioning"
+version = "0.0.1"
+description = "Ansible playbooks that build the Cloud Sandbox software stack on a head node"
+requires-python = ">=3.12"
+dependencies = []
+
+# ansible-core is held to the series that RHEL 10 ships, which is what runs
+# the playbooks on a node.
+[dependency-groups]
+dev = [
+    "ansible-core>=2.16,<2.17",
+    "ansible-lint",
+    "boto3",
+    "pyright>=1.1.400",
+    "pytest>=8",
+    "pyyaml",
+    "ruff>=0.12",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+extend-exclude = ["legacy", ".collections"]
+
+[tool.ruff.lint]
+select = ["B", "C4", "D", "E", "F", "I", "N", "PL", "PTH", "RUF", "SIM", "UP", "W"]
+ignore = ["D203", "D213"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D", "PLR2004"]
+
+[tool.pyright]
+include = ["tests"]
+typeCheckingMode = "standard"
+pythonVersion = "3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

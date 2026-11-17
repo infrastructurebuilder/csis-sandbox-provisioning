@@ -1,0 +1,21 @@
+---
+# The head node of a running sandbox, found by its tags, for applying the
+# playbooks from an operator's machine:
+#
+#   ansible-playbook -i inventories/aws/aws_ec2.yml site.yml --tags efa_driver
+#
+# Terraform names the head node "<name_tag> EC2 Head Node". Compute nodes carry
+# the same Project tag, so the Name tag is what tells them apart.
+plugin: amazon.aws.aws_ec2
+regions:
+  - us-east-2
+filters:
+  instance-state-name: running
+  "tag:Name": "*EC2 Head Node"
+hostnames:
+  - tag:Name
+compose:
+  ansible_host: public_ip_address
+  ansible_user: "'ec2-user'"
+groups:
+  sandbox_head: true

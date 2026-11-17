@@ -1,0 +1,5 @@
+# {{ ansible_managed }}
+# Written whole by the spack_environment role from spack_environment_config
+# and spack_environment_specs; an edit made here is overwritten, and the
+# previous file is kept beside it.
+{{ {'spack': {'specs': spack_environment_specs} | combine(spack_environment_config)} | to_nice_yaml(indent=2, sort_keys=False) }}

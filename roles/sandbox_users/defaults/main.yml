@@ -1,0 +1,35 @@
+---
+# The people who use the sandbox. add-users.py reads them from a CSV file,
+# system/ioos.sb.users, which was never in the repository because it holds
+# their names, addresses and keys. Here they are a variable, kept with the
+# site's other settings (an inventory or an extra-vars file), never in this
+# repository. Each entry:
+#
+#   - full_name: John Doe                   # FullName
+#     email: john.doe@example.com           # email
+#     username: jdoe                        # username
+#     uid: 1001                             # uid, also the gid of the personal group
+#     groups:                               # groups and gids, paired
+#       - {name: developers, gid: 2001}
+#       - {name: staff, gid: 12002}
+#     public_key: "ssh-ed25519 AAAA... jdoe" # public_key
+#     ip_addresses: [203.0.113.7]           # ip_address: SSH is opened to these
+#
+# A group's gid may be left out; the system then picks one, as the script does.
+sandbox_users_present: []
+
+# Users to remove, with their home directories and personal groups
+# (remove-user.sh).
+sandbox_users_absent: []
+
+# The security group that SSH is opened in for each user's addresses.
+# add-users.py has one site's group written in; empty here means the step is
+# skipped, since it needs AWS permissions the head node does not normally have.
+sandbox_users_ssh_security_group: ""
+
+# Users allowed to mount and unmount Lustre file systems under their own
+# /ptmp directory (system/sudoers.d.sandbox-modelers, which names one person).
+sandbox_users_lustre_mounters: []
+
+# The directories each user gets one of, if they exist (add-users.py L219).
+sandbox_users_work_dirs: [/save, /com, /ptmp]

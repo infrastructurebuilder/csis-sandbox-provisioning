@@ -1,0 +1,42 @@
+---
+# install_fsx_driver: the Lustre client for FSx scratch filesystems.
+#
+# The script downloads the repository file and then edits it in place, on
+# every run. Here the file is fetched, the same two edits are applied to its
+# text, and the result is written only when it differs from what is there.
+
+# Replaces funcs-setup-instance.sh L1055
+- name: Fetch the Lustre client repository definition
+  ansible.builtin.uri:
+    url: "{{ fsx_lustre_client_repo_url }}"
+    return_content: true
+  register: fsx_lustre_client_repo
+  check_mode: false
+
+# Replaces funcs-setup-instance.sh L1060-L1071
+- name: Say which release the running kernel belongs to
+  ansible.builtin.debug:
+    msg: >-
+      Current kernel version is: {{ fsx_lustre_client_kernel }}.
+      {{ 'RHEL 10.2' if fsx_lustre_client_kernel_10_2 in fsx_lustre_client_kernel
+      else 'RHEL 10.1' if fsx_lustre_client_kernel_10_1 in fsx_lustre_client_kernel
+      else 'not sure if any changes to ' ~ fsx_lustre_client_repo_file ~ ' are needed' }}
+
+# Replaces funcs-setup-instance.sh L1055-L1058 L1066-L1068
+# The signature check is turned off because RHEL 10 does not accept the
+# repository's key; the script's comment says so. The edits themselves are in
+# defaults/main.yml, and tests/test_parity.py runs them against sed.
+- name: Write the repository definition with the script's two edits
+  ansible.builtin.copy:
+    content: "{{ fsx_lustre_client_repo_text }}"
+    dest: "{{ fsx_lustre_client_repo_file }}"
+    mode: "0644"
+
+# Replaces funcs-setup-instance.sh L1073-L1074
+- name: Install the Lustre client
+  ansible.builtin.dnf:
+    name:
+      - kmod-lustre-client
+      - lustre-client
+    state: present
+    update_cache: true

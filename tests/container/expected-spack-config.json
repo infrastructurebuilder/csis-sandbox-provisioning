@@ -1,0 +1,293 @@
+{
+ "site:config": {},
+ "site:mirrors": {
+  "spack-public": "https://cache.spack.io"
+ },
+ "site:modules": {},
+ "site:packages": {
+  "all": {
+   "providers": {
+    "blas": [
+     "intel-oneapi-mkl"
+    ],
+    "lapack": [
+     "intel-oneapi-mkl"
+    ],
+    "mkl": [
+     "intel-oneapi-mkl"
+    ],
+    "mpi": [
+     "intel-oneapi-mpi"
+    ],
+    "scalapack": [
+     "intel-oneapi-mkl"
+    ]
+   }
+  },
+  "autoconf": {
+   "externals": [
+    {
+     "prefix": "/usr",
+     "spec": "autoconf@2.71"
+    }
+   ]
+  },
+  "automake": {
+   "externals": [
+    {
+     "prefix": "/usr",
+     "spec": "automake@1.16.5"
+    }
+   ]
+  },
+  "binutils": {
+   "externals": [
+    {
+     "prefix": "/usr",
+     "spec": "binutils@2.41.63~gold~headers"
+    }
+   ]
+  },
+  "cmake": {
+   "buildable": false,
+   "externals": [
+    {
+     "prefix": "/usr",
+     "spec": "cmake@3.31.8"
+    }
+   ]
+  },
+  "coreutils": {
+   "externals": [
+    {
+     "prefix": "/usr",
+     "spec": "coreutils@9.5"
+    }
+   ]
+  },
+  "curl": {
+   "externals": [
+    {
+     "prefix": "/usr",
+     "spec": "curl@8.12.1+gssapi+nghttp2"
+    }
+   ]
+  },
+  "diffutils": {
+   "externals": [
+    {
+     "prefix": "/usr",
+     "spec": "diffutils@3.10"
+    }
+   ]
+  },
+  "findutils": {
+   "externals": [
+    {
+     "prefix": "/usr",
+     "spec": "findutils@4.10.0"
+    }
+   ]
+  },
+  "gawk": {
+   "externals": [
+    {
+     "prefix": "/usr",
+     "spec": "gawk@5.3.0"
+    }
+   ]
+  },
+  "gcc": {
+   "externals": [
+    {
+     "extra_attributes": {
+      "compilers": {
+       "c": "/usr/bin/gcc",
+       "cxx": "/usr/bin/g++"
+      }
+     },
+     "prefix": "/usr",
+     "spec": "gcc@14.3.1 languages:='c,c++'"
+    }
+   ]
+  },
+  "git": {
+   "externals": [
+    {
+     "prefix": "/usr",
+     "spec": "git@2.52.0~tcltk"
+    }
+   ]
+  },
+  "gmake": {
+   "externals": [
+    {
+     "prefix": "/usr",
+     "spec": "gmake@4.4.1"
+    }
+   ]
+  },
+  "groff": {
+   "externals": [
+    {
+     "prefix": "/usr",
+     "spec": "groff@1.23.0"
+    }
+   ]
+  },
+  "intel-oneapi-compilers": {
+   "externals": [
+    {
+     "extra_attributes": {
+      "compilers": {
+       "c": "/opt/intel/oneapi/compiler/2024.2/bin/icx",
+       "cxx": "/opt/intel/oneapi/compiler/2024.2/bin/icpx",
+       "fortran": "/opt/intel/oneapi/compiler/2024.2/bin/ifx"
+      }
+     },
+     "prefix": "/opt/intel/oneapi",
+     "spec": "intel-oneapi-compilers@2024.2.1"
+    }
+   ]
+  },
+  "intel-oneapi-compilers-classic": {
+   "externals": [
+    {
+     "extra_attributes": {
+      "compilers": {
+       "fortran": "/opt/intel/oneapi/compiler/2024.2/bin/ifort"
+      }
+     },
+     "prefix": "/opt/intel/oneapi/compiler/2024.2",
+     "spec": "intel-oneapi-compilers-classic@2021.13.3"
+    }
+   ]
+  },
+  "intel-oneapi-mkl": {
+   "buildable": false,
+   "externals": [
+    {
+     "prefix": "/opt/intel/oneapi",
+     "spec": "intel-oneapi-mkl@2024.2"
+    }
+   ]
+  },
+  "intel-oneapi-mpi": {
+   "buildable": false,
+   "externals": [
+    {
+     "prefix": "/opt/intel/oneapi",
+     "spec": "intel-oneapi-mpi@2021.13"
+    }
+   ]
+  },
+  "libtool": {
+   "externals": [
+    {
+     "prefix": "/usr",
+     "spec": "libtool@2.4.7"
+    }
+   ]
+  },
+  "llvm": {
+   "externals": [
+    {
+     "extra_attributes": {
+      "compilers": {
+       "c": "/usr/bin/clang-19",
+       "cxx": "/usr/bin/clang++-19"
+      }
+     },
+     "prefix": "/usr",
+     "spec": "llvm@19.1.7+clang~flang+lld~lldb"
+    }
+   ]
+  },
+  "m4": {
+   "externals": [
+    {
+     "prefix": "/usr",
+     "spec": "m4@1.4.19"
+    }
+   ]
+  },
+  "openssh": {
+   "externals": [
+    {
+     "prefix": "/usr",
+     "spec": "openssh@9.9p1"
+    }
+   ]
+  },
+  "perl": {
+   "externals": [
+    {
+     "prefix": "/usr",
+     "spec": "perl@5.40.2~cpanm~opcode~open+shared+threads"
+    }
+   ]
+  },
+  "pkgconf": {
+   "externals": [
+    {
+     "prefix": "/usr",
+     "spec": "pkgconf@2.1.0"
+    }
+   ]
+  },
+  "python": {
+   "externals": [
+    {
+     "prefix": "/usr",
+     "spec": "python@3.12.15+bz2+crypt+ctypes+dbm+lzma+pyexpat~pythoncmd+readline+sqlite3+ssl~tkinter+uuid+zlib"
+    }
+   ]
+  },
+  "sed": {
+   "externals": [
+    {
+     "prefix": "/usr",
+     "spec": "sed@4.9"
+    }
+   ]
+  },
+  "subversion": {
+   "externals": [
+    {
+     "prefix": "/usr",
+     "spec": "subversion@1.14.5"
+    }
+   ]
+  },
+  "tar": {
+   "externals": [
+    {
+     "prefix": "/usr",
+     "spec": "tar@1.35"
+    }
+   ]
+  },
+  "zlib": {
+   "externals": [
+    {
+     "prefix": "/usr",
+     "spec": "zlib@1.3.1"
+    }
+   ]
+  }
+ },
+ "user:config": {
+  "install_tree": {
+   "padded_length": 73
+  }
+ },
+ "user:mirrors": {},
+ "user:modules": {
+  "default": {
+   "enable": [
+    "tcl"
+   ]
+  }
+ },
+ "user:packages": {}
+}

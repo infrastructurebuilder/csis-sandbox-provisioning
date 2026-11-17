@@ -1,0 +1,13 @@
+[aws-fsx]
+name=AWS FSx Packages - $basearch
+baseurl=https://fsx-lustre-client-repo.s3.amazonaws.com/el/10/$basearch
+enabled=1
+gpgkey=https://fsx-lustre-client-repo-public-keys.s3.amazonaws.com/fsx-rpm-public-key.asc
+gpgcheck=1
+
+[aws-fsx-src]
+name=AWS FSx Source - $basearch
+baseurl=https://fsx-lustre-client-repo.s3.amazonaws.com/el/10/SRPMS
+enabled=0
+gpgkey=https://fsx-lustre-client-repo-public-keys.s3.amazonaws.com/fsx-rpm-public-key.asc
+gpgcheck=1

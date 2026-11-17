@@ -1,0 +1,49 @@
+---
+# setup_ssh_mpi: the key that MPI uses to reach the compute nodes, and no host
+# key prompts on private addresses.
+
+# New: ssh-keygen does not create the directory it writes into.
+- name: Create the login user's ssh directory
+  ansible.builtin.file:
+    path: "{{ mpi_ssh_key | dirname }}"
+    state: directory
+    owner: "{{ sandbox_user }}"
+    group: "{{ sandbox_user }}"
+    mode: "0700"
+
+# Replaces funcs-setup-instance.sh L1348
+# The script would overwrite an existing key if it could answer the prompt.
+# Its own comment asks for that not to happen, and here it cannot.
+- name: Generate the key pair for MPI
+  ansible.builtin.command:
+    argv: [ssh-keygen, -t, rsa, -N, "", -C, mpi-ssh-key, -f, "{{ mpi_ssh_key }}"]
+    creates: "{{ mpi_ssh_key }}"
+  become: true
+  become_user: "{{ sandbox_user }}"
+
+# Replaces funcs-setup-instance.sh L1349
+- name: Read the public key
+  ansible.builtin.slurp:
+    src: "{{ mpi_ssh_key }}.pub"
+  register: mpi_ssh_public_key
+
+# Replaces funcs-setup-instance.sh L1349
+# The script appends the key on every run; here it is written once.
+- name: Authorise the key for the login user
+  ansible.builtin.lineinfile:
+    path: "{{ mpi_ssh_key | dirname }}/authorized_keys"
+    line: "{{ mpi_ssh_public_key.content | b64decode | trim }}"
+    create: true
+    owner: "{{ sandbox_user }}"
+    group: "{{ sandbox_user }}"
+    mode: "0600"
+
+# Replaces funcs-setup-instance.sh L1353-L1439
+# The script appends these rules to /etc/ssh/ssh_config on every run. The file
+# installed here holds the same rules, and tests/test_parity.py compares it
+# with the script's text.
+- name: Stop ssh asking about host keys on private addresses
+  ansible.builtin.copy:
+    src: sandbox-local-net.conf
+    dest: "{{ mpi_ssh_rules_file }}"
+    mode: "0644"

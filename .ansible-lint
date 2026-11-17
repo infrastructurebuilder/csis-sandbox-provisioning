@@ -1,0 +1,11 @@
+---
+# The strictest profile: these files are all new.
+profile: production
+
+exclude_paths:
+  - .collections/
+  - .venv/
+  - legacy/
+
+# The playbooks are run offline in tests; collections come from requirements.yml.
+offline: true

@@ -1,0 +1,106 @@
+---
+# What scripts/environment-vars.sh exports, as data, with the same values.
+# The name each variable has in that script is in the comment beside it;
+# tests/test_parity.py checks the two against each other.
+#
+# Settings that belong to a single role are in that role's defaults/main.yml.
+
+# ---------------------------------------------------------------------------
+# Versions
+# ---------------------------------------------------------------------------
+
+prefect_version: "3.7.8"                                        # PREFECT_VER
+gcc_version: "14.3.1"                                           # GCC_VER
+gcc_major: "{{ gcc_version.split('.')[0] }}"                    # GCC_MAJOR
+spack_version: "v1.2.0"                                         # SPACK_VER
+oneapi_version: "2024.2.1"                                      # ONEAPI_VER
+oneapi_major_minor: "{{ oneapi_version.rsplit('.', 1)[0] }}"    # ONEAPI_MAJOR_MINOR
+intel_compiler_version: "2021.13.2"                             # INTEL_COMPILER_VER
+intel_mpi_version: "2021.13"                                    # INTEL_MPI_VER
+esmf_version: "8.9.1"                                           # ESMF_VER
+efa_installer_version: "1.48.0"                                 # EFA_INSTALLER_VER
+
+# ---------------------------------------------------------------------------
+# Spack
+# ---------------------------------------------------------------------------
+
+spack_dir: "{{ sandbox_environments_dir }}/spack.{{ spack_version }}"    # SPACK_DIR
+spack_exe: "{{ spack_dir }}/bin/spack"
+
+# One build job on a machine with one or two processors, otherwise all but one.
+sandbox_nproc: "{{ ansible_facts.processor_nproc }}"
+spack_jobs: "{{ 1 if (sandbox_nproc | int) <= 2 else (sandbox_nproc | int) - 1 }}"    # JOBS
+
+#  1 = install only from binary mirrors, never build
+#  0 = build what the mirrors do not have
+# -1 = never look in the binary mirrors
+# The script ships with -1, so everything is compiled.
+spack_cache_only: -1                                            # SPACK_CACHEONLY
+spack_cache_flag: "{{ {1: '--cache-only', -1: '--no-cache'}.get(spack_cache_only | int, '') }}"
+spack_opts: "-v -y --jobs {{ spack_jobs }} --fail-fast {{ spack_cache_flag }}"    # SPACKOPTS
+
+spack_target: x86_64_v3                                         # target
+spack_arch: "arch=linux-rhel10-{{ spack_target }}"              # SPACKTARGET
+
+# Exported by the script and used by none of the functions it calls: the lines
+# that would add this mirror are commented out there, and the operator added
+# it by hand with spack-pubkey.sh. The spack role adds it when
+# spack_site_mirror is true (stage 11).
+spack_mirror: s3://ioos-cloud-sandbox/public/spack/mirror       # SPACK_MIRROR
+spack_key_url: https://ioos-cloud-sandbox.s3.amazonaws.com/public/spack/mirror/spack.mirror.gpgkey.pub    # SPACK_KEY_URL
+# Where the script downloads the key to. Nothing here uses it: the key is
+# fetched and trusted by its fingerprint. Kept because the script exports it.
+spack_key: "{{ spack_dir }}/opt/spack/gpg/spack.mirror.gpgkey.pub"    # SPACK_KEY
+
+# New (stage 11): whether to trust the site mirror's key and use the site
+# mirror. False, so that a build does what the script does.
+spack_site_mirror: false
+# New (stage 11): the fingerprint the key at spack_key_url must have. It is
+# the key kept in sandbox-ops/keys/, and what the URL served on 2026-11-14.
+spack_key_fingerprint: 22DC0120263F329AE5C9DA08F525C05B06DCA266
+
+# ---------------------------------------------------------------------------
+# The node image
+# ---------------------------------------------------------------------------
+
+# Names must be unique. Terraform passes one; this is the script's fallback.
+ami_name: "IOOS-Cloud-Sandbox-{{ now(utc=true, fmt='%Y%m%d_%H-%M') }}"    # ami_name
+project_tag: IOOS-Cloud-Sandbox                                 # project_tag
+
+# ---------------------------------------------------------------------------
+# What the script takes from its surroundings instead of from a variable
+# ---------------------------------------------------------------------------
+
+# The login user the stack is built for: $USER in the script, RUNUSER in the
+# first-boot template.
+sandbox_user: ec2-user
+sandbox_user_home: "/home/{{ sandbox_user }}"
+
+# The EFS volume and the directories on it. The first-boot template mounts the
+# volume and makes the /save link before the playbook runs.
+sandbox_efs_mount: /mnt/efs/fs1
+sandbox_save_dir: /save
+sandbox_environments_dir: /save/environments
+sandbox_modulefiles_dir: /save/environments/modulefiles
+
+# The site's name as it appears in the shell prompt.
+sandbox_prompt_name: IOOS-Sandbox
+
+# The Intel modules that install_intel_oneapi_dnf loads. The script's functions
+# share one shell, so they stay loaded for the Spack steps that follow; here
+# each step that needs them loads them.
+sandbox_intel_modules:
+  - "intel/compiler/{{ oneapi_version }}"
+  - "intel/compiler-intel-llvm/{{ oneapi_version }}"
+  - "intel/ifort/{{ oneapi_version }}"
+  - "intel/mpi/{{ intel_mpi_version }}"
+  - "intel/mkl/{{ oneapi_major_minor }}"
+
+# Sourced before "set -e": the file is not written to be run that way.
+sandbox_modules_init: . /usr/share/Modules/init/bash
+
+sandbox_load_intel_modules: |
+  module use -a {{ sandbox_modulefiles_dir }}
+  {% for module in sandbox_intel_modules %}
+  module load {{ module }}
+  {% endfor %}

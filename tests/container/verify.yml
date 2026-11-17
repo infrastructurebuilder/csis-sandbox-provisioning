@@ -1,0 +1,474 @@
+---
+# What the roles applied in the container should have left behind. Run by
+# converge.sh inside the container, after the second apply.
+
+- name: Check the result of the roles the container can run
+  hosts: "{{ 'sandbox_head' if 'site' in (verify_plays | default('site')).split() else 'none' }}"
+  become: true
+  gather_facts: false
+  vars_files:
+    - ../../group_vars/all.yml
+    - ../../roles/base_system/defaults/main.yml
+    - ../../roles/spack_environment/defaults/main.yml
+
+  tasks:
+    - name: Look at the directories and links
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop: [/ptmp, /com, /mnt/efs/fs1/ptmp, /mnt/efs/fs1/com, "/com/{{ sandbox_user }}", "/ptmp/{{ sandbox_user }}"]
+      register: paths
+
+    - name: Check the directories and links
+      ansible.builtin.assert:
+        that:
+          - paths.results[0].stat.islnk and paths.results[0].stat.lnk_target == '/mnt/efs/fs1/ptmp'
+          - paths.results[1].stat.islnk and paths.results[1].stat.lnk_target == '/mnt/efs/fs1/com'
+          - paths.results[2].stat.mode == '0777' and paths.results[2].stat.gr_name == 'wheel'
+          - paths.results[3].stat.mode == '0777' and paths.results[3].stat.gr_name == 'wheel'
+          - paths.results[4].stat.pw_name == sandbox_user
+          - paths.results[5].stat.pw_name == sandbox_user
+        quiet: true
+
+    - name: Read the login user's shell files
+      ansible.builtin.slurp:
+        src: "{{ sandbox_user_home }}/{{ item }}"
+      loop: [.bashrc, .tcshrc]
+      register: rc
+
+    - name: Check that each line the roles write is there exactly once
+      ansible.builtin.assert:
+        that:
+          - (rc.results[0].content | b64decode).count(item.bash) == 1
+          - (rc.results[1].content | b64decode).count(item.tcsh) == 1
+        quiet: true
+      loop:
+        - {bash: 'alias lsl="ls -al"', tcsh: 'alias lsl "ls -al"'}
+        - {bash: 'alias cds="cd /save/$USER"', tcsh: 'alias cdpt "cd /ptmp/$USER"'}
+        - {bash: 'PS1="[IOOS-Sandbox:\w] \u> "', tcsh: 'set prompt="[IOOS-Sandbox:%~] %n $0> "'}
+        - {bash: ". /usr/share/Modules/init/bash", tcsh: "source /usr/share/Modules/init/tcsh"}
+        - {bash: ". {{ spack_dir }}/share/spack/setup-env.sh", tcsh: "source {{ spack_dir }}/share/spack/setup-env.csh"}
+      loop_control:
+        label: "{{ item.bash }}"
+      when: (item.bash is not search('spack')) or (spack_dir is directory)
+
+    - name: Check the packages, tools and settings from base_system
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          rpm -q tcsh ksh Lmod tmux jq environment-modules epel-release amazon-ssm-agent >/dev/null
+          aws=$(/usr/local/bin/aws --version)
+          grep -q 'aws-cli/{{ base_system_awscli_version }}' <<<"$aws"
+          [ "$(grep -c '^ulimit -s unlimited$' /etc/profile.d/custom.sh)" = 1 ]
+          modules=$(alternatives --display modules.sh)
+          grep -q 'link currently points to /usr/share/Modules/init/profile.sh' <<<"$modules"
+          cmp /opt/sandbox-provisioning/roles/base_system/files/tmux.conf {{ sandbox_user_home }}/.tmux.conf
+          cmp /opt/sandbox-provisioning/roles/user_shell/files/vimrc {{ sandbox_user_home }}/.vimrc
+          [ "$(stat -c %U {{ sandbox_environments_dir }})" = {{ sandbox_user }} ]
+        executable: /bin/bash
+      changed_when: false
+
+    - name: See whether the module search path got its line
+      ansible.builtin.command:
+        cmd: "grep -c '^{{ sandbox_modulefiles_dir }}$' /etc/environment-modules/modulespath"
+      register: modulespath
+      changed_when: false
+      failed_when: false
+
+    - name: Report it
+      ansible.builtin.debug:
+        msg: >-
+          OBSERVED the modulefiles directory is
+          {{ 'in' if modulespath.stdout == '1' else 'NOT in' }}
+          /etc/environment-modules/modulespath
+
+    - name: Check the Prefect account, its environment and its service
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          [ "$(getent passwd prefect | cut -d: -f7)" = /sbin/nologin ]
+          [ "$(id -gn prefect)" = prefect ]
+          [ "$(stat -c %U:%G /save/environments/prefect/.prefect)" = prefect:prefect ]
+          installed=$(/opt/prefect/venv/bin/pip show prefect)
+          grep -q '^Version: {{ prefect_version }}$' <<<"$installed"
+          cmp /opt/sandbox-provisioning/roles/prefect_server/files/prefect-server.service \
+            /etc/systemd/system/prefect-server.service
+          systemctl is-enabled --quiet prefect-server
+          systemctl is-active --quiet prefect-server
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Wait for the Prefect server to answer
+      ansible.builtin.uri:
+        url: http://127.0.0.1:4200/api/health
+      register: health
+      until: health.status == 200
+      retries: 30
+      delay: 2
+
+    - name: Check the MPI key and the host rules
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          ssh=/home/{{ sandbox_user }}/.ssh
+          [ "$(stat -c %U:%a $ssh/id_rsa)" = {{ sandbox_user }}:600 ]
+          [ "$(grep -c -F "$(cat $ssh/id_rsa.pub)" $ssh/authorized_keys)" = 1 ]
+          grep -q ' mpi-ssh-key$' $ssh/id_rsa.pub
+          # ssh -G prints the effective settings; it spells "no" as "false".
+          private=$(ssh -G 10.1.2.3 </dev/null 2>/dev/null)
+          grep -qx 'stricthostkeychecking false' <<<"$private"
+          node=$(ssh -G ip-10-0-0-5.compute.internal </dev/null 2>/dev/null)
+          grep -qx 'stricthostkeychecking false' <<<"$node"
+          grep -qx 'checkhostip no' <<<"$node"
+          public=$(ssh -G example.org </dev/null 2>/dev/null)
+          grep -qx 'stricthostkeychecking ask' <<<"$public"
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Check that the login user can import what the workflows need
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - |
+            import boto3, dask, distributed, matplotlib, netCDF4, numpy, paramiko, PIL, prefect, pyproj
+            assert prefect.__version__ == "{{ prefect_version }}", prefect.__version__
+      become: true
+      become_user: "{{ sandbox_user }}"
+      changed_when: false
+
+    - name: Check what the spack role leaves, when it was applied
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          spack={{ spack_exe }}
+          [ "$(git -C {{ spack_dir }} describe --tags)" = {{ spack_version }} ]
+          config=$($spack config get config)
+          grep -q 'padded_length: 73' <<<"$config"
+          mirrors=$($spack mirror list)
+          grep -q '^spack-public .*https://cache.spack.io' <<<"$mirrors"
+          compilers=$($spack compiler list)
+          grep -q gcc <<<"$compilers"
+          # Stage 11: the two settings are in the site scope, and the steps
+          # ran as the login user, so what they wrote is that user's.
+          site=$($spack config --scope site get --json config)$($spack config --scope site get --json modules)
+          grep -q '"padded_length":73' <<<"$site"
+          grep -q '"enable":\["tcl"\]' <<<"$site"
+          grep -q 'cache.spack.io' <<<"$($spack config --scope site get --json mirrors)"
+          [ -z "$(find {{ spack_dir }}/etc/spack/site ! -user {{ sandbox_user }})" ]
+        executable: /bin/bash
+      become: true
+      become_user: "{{ sandbox_user }}"
+      changed_when: false
+      when: spack_dir is directory
+
+    # Stage 9: the role writes spack.yaml from a template instead of running the
+    # script's commands. Here both are done with the real Spack, side by side,
+    # and what Spack reads from each is compared. Nothing is concretized.
+    - name: Compare the role's spack.yaml with what the script's commands make
+      when: spack_dir is directory
+      become: true
+      become_user: "{{ sandbox_user }}"
+      vars:
+        parity_dir: /tmp/spack-environment-parity
+        # The script's "spack config add" lines (funcs-setup-instance.sh L756,
+        # L761, L762), as it writes them; tests/test_parity.py holds the role's
+        # spack_environment_config to the same lines.
+        parity_script_settings:
+          - "modules:default:enable:[tcl]"
+          - "concretizer:targets:granularity:generic"
+          - "packages:all:require:[target=x86_64_v3]"
+      block:
+        - name: Make one environment with the script's commands and an empty one for the template
+          ansible.builtin.shell:
+            cmd: |
+              set -euo pipefail
+              spack={{ spack_exe }}
+              rm -rf {{ parity_dir }}
+              mkdir -p {{ parity_dir }}
+              $spack env create {{ parity_dir }}/script >/dev/null
+              {% for setting in parity_script_settings %}
+              $spack -e {{ parity_dir }}/script config add '{{ setting }}'
+              {% endfor %}
+              {% for spec in spack_environment_specs %}
+              $spack -e {{ parity_dir }}/script add '{{ spec }}' >/dev/null
+              {% endfor %}
+              $spack env create {{ parity_dir }}/template >/dev/null
+            executable: /bin/bash
+          changed_when: false
+
+        - name: Write the other environment's spack.yaml with the role's template
+          ansible.builtin.template:
+            src: ../../roles/spack_environment/templates/spack.yaml.j2
+            dest: "{{ parity_dir }}/template/spack.yaml"
+            mode: "0644"
+
+        - name: Compare the two manifests, and what Spack reads from each
+          ansible.builtin.shell:
+            cmd: |
+              set -euo pipefail
+              spack={{ spack_exe }}
+              # "spack python -c" compiles a single statement; a file takes a program.
+              cat >{{ parity_dir }}/compare.py <<'EOF'
+              import json
+              import os
+              import sys
+              import spack.spec
+              import spack.util.spack_yaml as syaml
+              # Through JSON, so that the order of the keys does not count.
+              script, template = (
+                  json.loads(json.dumps(syaml.load(open(os.environ[name])))) for name in ("SCRIPT", "TEMPLATE")
+              )
+              # "spack add" stores each spec as Spack prints it, not as it was
+              # typed: variants sorted, intel-oneapi-compilers as oneapi. The
+              # specs are compared as Spack reads them.
+              for manifest in (script, template):
+                  manifest["spack"]["specs"] = [str(spack.spec.Spec(spec)) for spec in manifest["spack"]["specs"]]
+              if script != template:
+                  sys.exit(f"the manifests differ:\n{script}\n{template}")
+              # What Spack reads for each section once every scope is merged,
+              # compared as data: the two files write a list in different styles.
+              for section in os.environ["SECTIONS"].split():
+                  read = [
+                      json.loads(json.dumps(syaml.load(open(f"{os.environ['PARITY']}/{env}.{section}.yaml"))))
+                      for env in ("script", "template")
+                  ]
+                  if read[0] != read[1]:
+                      sys.exit(f"Spack reads {section} differently:\n{read[0]}\n{read[1]}")
+              EOF
+              sections="concretizer modules packages"
+              for section in $sections; do
+                for env in script template; do
+                  $spack -e {{ parity_dir }}/$env config get "$section" >{{ parity_dir }}/$env.$section.yaml
+                done
+              done
+              SCRIPT={{ parity_dir }}/script/spack.yaml TEMPLATE={{ parity_dir }}/template/spack.yaml \
+                PARITY={{ parity_dir }} SECTIONS="$sections" $spack python {{ parity_dir }}/compare.py
+              echo "the manifest ({{ spack_environment_specs | length }} specs as Spack reads them, view, configuration)" \
+                "and the merged concretizer, modules and packages sections"
+            executable: /bin/bash
+          register: parity_compare
+          changed_when: false
+
+        - name: Report it
+          ansible.builtin.debug:
+            msg: "OBSERVED spack.yaml: the template and the script's commands agree on {{ parity_compare.stdout_lines[-1] }}"
+
+    - name: Check what the intel_oneapi role leaves, when it was applied
+      ansible.builtin.shell:
+        cmd: |
+          {{ sandbox_modules_init }}
+          set -eo pipefail
+          cmp /opt/sandbox-provisioning/roles/intel_oneapi/files/oneAPI.repo /etc/yum.repos.d/oneAPI.repo
+          rpm -q intel-oneapi-compiler-fortran-{{ oneapi_major_minor }} intel-oneapi-mpi-devel-{{ intel_mpi_version }} >/dev/null
+          [ -d {{ sandbox_modulefiles_dir }}/intel/compiler/{{ oneapi_version }} ] || [ -f {{ sandbox_modulefiles_dir }}/intel/compiler/{{ oneapi_version }} ]
+          {{ sandbox_load_intel_modules }}
+          ifx --version >/dev/null
+          mpiifx -v >/dev/null 2>&1 || mpiifort -v >/dev/null 2>&1
+          config=$({{ spack_exe }} config get --json packages)
+          # Spack puts the site's providers in front of its own defaults, so
+          # the Intel libraries must come first in each list.
+          for want in '"intel-oneapi-mkl@{{ oneapi_major_minor }}"' '"intel-oneapi-mpi@{{ intel_mpi_version }}"' \
+                      '"mpi":\["intel-oneapi-mpi"' '"blas":\["intel-oneapi-mkl"' '"lapack":\["intel-oneapi-mkl"' \
+                      '"intel-oneapi-compilers@{{ oneapi_version }}'; do
+            grep -q "$want" <<<"$config" || { echo "missing from Spack's configuration: $want"; exit 1; }
+          done
+        executable: /bin/bash
+      become: true
+      become_user: "{{ sandbox_user }}"
+      changed_when: false
+      when: (sandbox_modulefiles_dir ~ '/intel') is directory
+
+    # Stage 12: converge.sh left the padding in the login user's scope as the
+    # script would, and the modules setting changed. The padding is a
+    # leftover and is gone; the modules setting was chosen and is there.
+    # It is then taken away here, so that the comparison below sees what
+    # the roles alone leave.
+    - name: Check what the spack role did with the login user's scope
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          spack={{ spack_exe }}
+          user_config=$($spack config --scope user get --json config)
+          user_modules=$($spack config --scope user get --json modules)
+          ! grep -q padded_length <<<"$user_config" || { echo "the leftover padding is still there"; exit 1; }
+          grep -q '"enable":\["lmod"\]' <<<"$user_modules" || { echo "the chosen modules setting is gone"; exit 1; }
+          # The whole mapping: removing only its key would leave "default: {}"
+          # behind, which is how Spack removes (stage 12).
+          $spack config --scope user remove modules:default
+          echo "the leftover padding removed, the chosen modules setting kept"
+        executable: /bin/bash
+      become: true
+      become_user: "{{ sandbox_user }}"
+      register: user_scope_check
+      changed_when: false
+      when:
+        - spack_dir is directory
+        - (sandbox_user_home ~ '/.spack/modules.yaml') is file
+
+    - name: Report the login user's scope
+      ansible.builtin.debug:
+        msg: "OBSERVED the login user's Spack scope: {{ user_scope_check.stdout_lines[-1] }}"
+      when: user_scope_check is not skipped
+
+    # Stage 11: the spack and intel_oneapi roles set Spack up through the
+    # csis_spack collection. What they leave is held to what the shell tasks
+    # they replaced left in this container (expected-spack-config.json), but
+    # for the one difference that was decided. See the script.
+    - name: Compare what Spack was told with what the shell roles left
+      ansible.builtin.command:
+        cmd: >-
+          python3 /opt/sandbox-provisioning/tests/container/compare-spack-config.py
+          --spack {{ spack_exe }}
+          --expected /opt/sandbox-provisioning/tests/container/expected-spack-config.json
+      become: true
+      become_user: "{{ sandbox_user }}"
+      register: spack_config_compared
+      changed_when: false
+      when:
+        - spack_dir is directory
+        - (sandbox_modulefiles_dir ~ '/intel') is directory
+
+    - name: Report the comparison
+      ansible.builtin.debug:
+        msg: "OBSERVED Spack's configuration: {{ spack_config_compared.stdout_lines[-1] }}"
+      when: spack_config_compared is not skipped
+
+    # Stage 10: spack_environment, applied with spack_environment_state: concretized.
+    - name: Check what the spack_environment role leaves, when it was applied
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          lock={{ spack_environment_dir }}/spack.lock
+          python3 - "$lock" <<'EOF'
+          import json, sys
+          lock = json.load(open(sys.argv[1]))
+          roots = sorted(root["spec"].split("@")[0].split("+")[0].split()[0] for root in lock["roots"])
+          names = {spec["name"] for spec in lock["concrete_specs"].values()}
+          assert roots == ["esmf", "petsc"], roots
+          for name in ("intel-oneapi-compilers", "intel-oneapi-mpi"):
+              assert name in names, f"{name} is not in the concretized environment"
+          print(f"{len(names)} packages concretized for esmf and petsc, with Intel's compilers and MPI")
+          EOF
+        executable: /bin/bash
+      become: true
+      become_user: "{{ sandbox_user }}"
+      register: environment_check
+      changed_when: false
+      when: (spack_environment_dir ~ '/spack.yaml') is file
+
+    - name: Report what the environment holds
+      ansible.builtin.debug:
+        msg: "OBSERVED spack_environment: {{ environment_check.stdout_lines[-1] }}"
+      when: environment_check is not skipped
+
+- name: Check the users that users.yml added
+  hosts: "{{ 'sandbox_head' if 'users' in (verify_plays | default('')).split() else 'none' }}"
+  become: true
+  gather_facts: false
+  vars_files:
+    - users.yml
+
+  tasks:
+    - name: Look at the test user
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          id jdoe
+          getent group jdoe developers staff | cut -d: -f1,3
+          stat -c '%U %a %n' /home/jdoe/.ssh/authorized_keys /home/jdoe/.spack/config.yaml /save/jdoe
+      register: users_id
+      changed_when: false
+
+    - name: Check the user, the groups and the owners
+      ansible.builtin.assert:
+        that:
+          - "'uid=1001(jdoe) gid=1001(jdoe)' in users_id.stdout"
+          - "'2001(developers)' in users_id.stdout and '12002(staff)' in users_id.stdout"
+          - "'jdoe:1001' in users_id.stdout_lines"
+          - "'developers:2001' in users_id.stdout_lines"
+          - "'staff:12002' in users_id.stdout_lines"
+          - "'jdoe 600 /home/jdoe/.ssh/authorized_keys' in users_id.stdout_lines"
+          - "'jdoe 644 /home/jdoe/.spack/config.yaml' in users_id.stdout_lines"
+          - "'jdoe 755 /save/jdoe' in users_id.stdout_lines"
+        quiet: true
+
+    - name: Read the test user's keys and shell files
+      ansible.builtin.slurp:
+        src: "/home/jdoe/{{ item }}"
+      loop: [.ssh/authorized_keys, .ssh/id_rsa.pub, .bashrc, .tcshrc]
+      register: users_files
+
+    - name: Check that both keys are authorised once and each line is written once
+      ansible.builtin.assert:
+        that:
+          - (users_files.results[0].content | b64decode).count(sandbox_users_present[0].public_key) == 1
+          - (users_files.results[0].content | b64decode).count(users_files.results[1].content | b64decode | trim) == 1
+          - (users_files.results[1].content | b64decode) is search('jdoe-mpi-ssh-key')
+          - (users_files.results[2].content | b64decode).count("alias cds='cd /save/jdoe'") == 1
+          - (users_files.results[2].content | b64decode).count('/share/spack/setup-env.sh') == 1
+          - (users_files.results[3].content | b64decode).count('alias cdpt cd /ptmp/jdoe') == 1
+        quiet: true
+
+    - name: Ask sudo what the test user may run
+      ansible.builtin.command:
+        cmd: sudo -l -U jdoe
+      register: users_sudo
+      changed_when: false
+
+    - name: Check the Lustre rules
+      ansible.builtin.assert:
+        that:
+          - "'/usr/bin/mount -t lustre -o * /ptmp/jdoe/*' in users_sudo.stdout"
+          - "'/usr/bin/umount * /ptmp/jdoe/*' in users_sudo.stdout"
+        quiet: true
+
+    - name: Report
+      ansible.builtin.debug:
+        msg: "OBSERVED users: jdoe {{ users_id.stdout_lines[0] }}"
+
+- name: Check the hub that jupyterhub.yml installed
+  hosts: "{{ 'sandbox_head' if 'jupyterhub' in (verify_plays | default('')).split() else 'none' }}"
+  become: true
+  gather_facts: false
+  vars_files:
+    - ../../group_vars/all.yml
+    - ../../roles/jupyterhub/defaults/main.yml
+    - vars.yml
+
+  tasks:
+    - name: Ask the hub whether it is up
+      ansible.builtin.uri:
+        url: http://127.0.0.1:8000/hub/health
+        status_code: 200
+      register: jupyterhub_health
+      retries: 30
+      delay: 5
+      until: jupyterhub_health.status == 200
+
+    - name: Look at the services, the files and their owners
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          systemctl is-enabled jupyterhub nginx
+          systemctl is-active nginx || true
+          stat -c '%U %n' {{ jupyterhub_conda_prefix }} {{ jupyterhub_config_dir }}/jupyterhub_config.py
+          visudo -cf /etc/sudoers.d/jupytersudoers
+          {{ jupyterhub_conda_prefix }}/bin/jupyterhub --version
+          nginx -T 2>/dev/null | grep -c 'server_name {{ jupyterhub_server_name }};' || true
+      register: jupyterhub_state
+      changed_when: false
+
+    - name: Check them
+      ansible.builtin.assert:
+        that:
+          - jupyterhub_state.stdout_lines[0:2] == ['enabled', 'enabled']
+          - "'inactive' in jupyterhub_state.stdout_lines[2]"
+          - "(sandbox_user ~ ' ' ~ jupyterhub_conda_prefix) in jupyterhub_state.stdout_lines"
+          - "('jupyter ' ~ jupyterhub_config_dir ~ '/jupyterhub_config.py') in jupyterhub_state.stdout_lines"
+        quiet: true
+
+    - name: Report
+      ansible.builtin.debug:
+        msg: >-
+          OBSERVED jupyterhub: up on port 8000, JupyterHub {{ jupyterhub_state.stdout_lines[-2] }};
+          nginx enabled and not started (no certificate in the container)

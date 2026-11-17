@@ -1,0 +1,220 @@
+---
+# The users of the sandbox: what scripts/add-users.py, remove-user.sh and the
+# sudoers files under scripts/system/ do, run by hand as root.
+#
+# The script acts only when a user does not exist yet, and appends to the
+# shell files each time it does. Here every step is a state, so a user who
+# exists but lacks part of it gets that part, and a second run changes
+# nothing.
+
+# Replaces add-users.py L366-L369
+- name: Check that the user list is well formed
+  ansible.builtin.assert:
+    that:
+      - item.username is defined and item.username | length > 0
+      - item.uid is defined
+    fail_msg: "Every entry of sandbox_users_present needs at least a username and a uid: {{ item }}"
+    quiet: true
+  loop: "{{ sandbox_users_present }}"
+  loop_control:
+    label: "{{ item.username | default('?') }}"
+
+# Replaces add-users.py L406-L413 L134-L148
+- name: Create the shared groups
+  ansible.builtin.group:
+    name: "{{ item.1.name }}"
+    gid: "{{ item.1.gid | default(omit) }}"
+  loop: "{{ sandbox_users_present | subelements('groups', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.1.name }}"
+
+# Replaces add-users.py L151-L165 L180
+- name: Create each user's personal group, with the user's uid as its gid
+  ansible.builtin.group:
+    name: "{{ item.username }}"
+    gid: "{{ item.uid }}"
+  loop: "{{ sandbox_users_present }}"
+  loop_control:
+    label: "{{ item.username }}"
+
+# Replaces add-users.py L174-L197 L232-L251 L416
+- name: Create the users, each with an SSH key for MPI
+  ansible.builtin.user:
+    name: "{{ item.username }}"
+    uid: "{{ item.uid }}"
+    comment: "{{ item.full_name | default(omit) }}"
+    group: "{{ item.username }}"
+    groups: "{{ item.groups | default([]) | map(attribute='name') | list }}"
+    append: true
+    generate_ssh_key: true
+    ssh_key_type: rsa
+    ssh_key_file: .ssh/id_rsa
+    ssh_key_comment: "{{ item.username }}-mpi-ssh-key"
+  loop: "{{ sandbox_users_present }}"
+  loop_control:
+    label: "{{ item.username }}"
+
+# Replaces add-users.py L254-L258
+- name: Read each user's MPI public key
+  ansible.builtin.slurp:
+    src: "/home/{{ item.username }}/.ssh/id_rsa.pub"
+  loop: "{{ sandbox_users_present }}"
+  loop_control:
+    label: "{{ item.username }}"
+  register: sandbox_users_mpi_keys
+
+# Replaces add-users.py L254-L257
+# The script appends as root, leaving a root-owned file, and appends an empty
+# line when the user has no key of their own.
+- name: Authorise each user's own key
+  ansible.builtin.lineinfile:
+    path: "/home/{{ item.username }}/.ssh/authorized_keys"
+    line: "{{ item.public_key | trim }}"
+    create: true
+    owner: "{{ item.username }}"
+    group: "{{ item.username }}"
+    mode: "0600"
+  loop: "{{ sandbox_users_present | selectattr('public_key', 'defined') | rejectattr('public_key', 'equalto', '') }}"
+  loop_control:
+    label: "{{ item.username }}"
+
+# Replaces add-users.py L258
+- name: Authorise each user's MPI key, so that mpirun can reach the nodes
+  ansible.builtin.lineinfile:
+    path: "/home/{{ item.item.username }}/.ssh/authorized_keys"
+    line: "{{ item.content | b64decode | trim }}"
+    create: true
+    owner: "{{ item.item.username }}"
+    group: "{{ item.item.username }}"
+    mode: "0600"
+  loop: "{{ sandbox_users_mpi_keys.results }}"
+  loop_control:
+    label: "{{ item.item.username }}"
+
+# Replaces add-users.py L216-L229
+- name: Look for the shared directories
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: true  # /save, /com and /ptmp are links to the EFS volume
+  loop: "{{ sandbox_users_work_dirs }}"
+  register: sandbox_users_work_roots
+
+# Replaces add-users.py L212-L229
+# The script skips a directory whose parent is missing; so does this.
+- name: Give each user a directory in /save, /com and /ptmp
+  ansible.builtin.file:
+    path: "{{ item.1.item }}/{{ item.0.username }}"
+    state: directory
+    owner: "{{ item.0.username }}"
+    group: "{{ item.0.username }}"
+    mode: "0755"
+  loop: "{{ sandbox_users_present | product(sandbox_users_work_roots.results | selectattr('stat.isdir', 'defined')
+          | selectattr('stat.isdir')) | list }}"
+  loop_control:
+    label: "{{ item.1.item }}/{{ item.0.username }}"
+
+# Replaces add-users.py L50-L57 L81-L89
+- name: Add the aliases for tcsh
+  ansible.builtin.lineinfile:
+    path: "/home/{{ item.0.username }}/.tcshrc"
+    line: "{{ item.1 | replace('@USER@', item.0.username) }}"
+    create: true
+    owner: "{{ item.0.username }}"
+    group: "{{ item.0.username }}"
+    mode: "0644"
+  loop: "{{ sandbox_users_present | product(sandbox_users_tcsh_lines) | list }}"
+  loop_control:
+    label: "{{ item.0.username }}: {{ item.1 }}"
+  vars:
+    sandbox_users_tcsh_lines:
+      - alias lsl 'ls -al'
+      - alias lst 'ls -altr'
+      - alias h 'history'
+      - alias cds cd /save/@USER@
+      - alias cdc cd /com/@USER@
+      - alias cdpt cd /ptmp/@USER@
+
+# Replaces add-users.py L17 L59-L69 L91-L99
+# The script names Spack v0.22.5 here (L17, with a TODO to take it from
+# environment-vars.sh); this takes it from group_vars, as the TODO asks.
+- name: Add the module and Spack set-up and the aliases for bash
+  ansible.builtin.lineinfile:
+    path: "/home/{{ item.0.username }}/.bashrc"
+    line: "{{ item.1 | replace('@USER@', item.0.username) }}"
+    create: true
+    owner: "{{ item.0.username }}"
+    group: "{{ item.0.username }}"
+    mode: "0644"
+  loop: "{{ sandbox_users_present | product(sandbox_users_bash_lines) | list }}"
+  loop_control:
+    label: "{{ item.0.username }}: {{ item.1 }}"
+  vars:
+    sandbox_users_bash_lines:
+      - . /usr/share/Modules/init/bash
+      - . {{ spack_dir }}/share/spack/setup-env.sh
+      - alias lsl='ls -al'
+      - alias lst='ls -altr'
+      - alias h='history'
+      - alias cds='cd /save/@USER@'
+      - alias cdc='cd /com/@USER@'
+      - alias cdpt='cd /ptmp/@USER@'
+
+# Replaces add-users.py L102-L103
+- name: Create each user's Spack configuration directory
+  ansible.builtin.file:
+    path: "/home/{{ item.username }}/.spack"
+    state: directory
+    owner: "{{ item.username }}"
+    group: "{{ item.username }}"
+    mode: "0755"
+  loop: "{{ sandbox_users_present }}"
+  loop_control:
+    label: "{{ item.username }}"
+
+# Replaces add-users.py L73-L78 L104-L111
+# The script gives this file to the user by mistake: it changes the owner of
+# .bashrc again (L109), so the file stays root's.
+- name: Point each user's Spack at the padded install tree
+  ansible.builtin.template:
+    src: spack-config.yaml.j2
+    dest: "/home/{{ item.username }}/.spack/config.yaml"
+    owner: "{{ item.username }}"
+    group: "{{ item.username }}"
+    mode: "0644"
+  loop: "{{ sandbox_users_present }}"
+  loop_control:
+    label: "{{ item.username }}"
+
+# Replaces add-users.py L418-L427
+# In a file of its own, read only when a group is named: it needs the
+# amazon.aws collection, which only the AWS-facing playbooks install.
+- name: Open SSH to the users' addresses
+  ansible.builtin.include_tasks: ssh_ingress.yml
+  when: sandbox_users_ssh_security_group | length > 0
+  tags: [aws]
+
+# Replaces system/sudoers.d.sandbox-modelers L1-L11
+- name: Let the named users mount Lustre under their own /ptmp
+  ansible.builtin.template:
+    src: sandbox-modelers.sudoers.j2
+    dest: /etc/sudoers.d/sandbox-modelers
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+  when: sandbox_users_lustre_mounters | length > 0
+
+# Replaces remove-user.sh L3
+- name: Remove the users that are to go, with their home directories
+  ansible.builtin.user:
+    name: "{{ item }}"
+    state: absent
+    remove: true
+  loop: "{{ sandbox_users_absent }}"
+
+# Replaces remove-user.sh L4
+- name: Remove their personal groups
+  ansible.builtin.group:
+    name: "{{ item }}"
+    state: absent
+  loop: "{{ sandbox_users_absent }}"

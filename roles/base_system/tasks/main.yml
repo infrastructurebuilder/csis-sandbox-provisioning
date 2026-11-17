@@ -1,0 +1,236 @@
+---
+# setup_environment: package manager settings, a full update, the base
+# packages, the AWS tools and environment modules.
+
+# Replaces funcs-setup-instance.sh L30
+- name: Look for the file in which the script turns documentation back on
+  ansible.builtin.stat:
+    path: "{{ base_system_dnf_conf }}"
+  register: base_system_dnf_conf_file
+
+# Replaces funcs-setup-instance.sh L30
+# The script edits /etc/dnf.conf. An AlmaLinux 10 container has no such file
+# (the settings are in /etc/dnf/dnf.conf), so there the script's sed fails
+# unnoticed and nothing is edited. The same file is named here and the edit is
+# made only if it exists.
+- name: Let packages install their documentation
+  ansible.builtin.replace:
+    path: "{{ base_system_dnf_conf }}"
+    regexp: '^(tsflags=nodocs)'
+    replace: '# \1'
+  when: base_system_dnf_conf_file.stat.exists
+
+# Replaces funcs-setup-instance.sh L33
+- name: Stop subscription-manager from managing the repositories
+  ansible.builtin.command:
+    cmd: subscription-manager config --rhsm.manage_repos=0
+  when: base_system_subscription_manager | bool
+  changed_when: false
+
+# Replaces funcs-setup-instance.sh L34
+- name: Silence the subscription-manager dnf plugin
+  ansible.builtin.replace:
+    path: /etc/dnf/pluginconf.d/subscription-manager.conf
+    regexp: 'enabled[ ]*=[ ]*1'
+    replace: 'enabled=0'
+  when: base_system_subscription_manager | bool
+
+# Replaces funcs-setup-instance.sh L40
+# The update may install a new kernel. The script does not reboot, and neither
+# does this; the efa_driver role says so when the kernels differ.
+- name: Update every installed package
+  ansible.builtin.dnf:
+    name: "*"
+    state: latest  # noqa: package-latest
+    update_cache: true
+
+# Replaces funcs-setup-instance.sh L48
+# dnf on the command line does not check the signature of a package given by
+# URL, so the script's install is unchecked too.
+- name: Add the EPEL repository
+  ansible.builtin.dnf:
+    name: "{{ base_system_epel_release_url }}"
+    state: present
+    disable_gpg_check: true
+
+# Replaces funcs-setup-instance.sh L49
+- name: See which repositories are enabled
+  ansible.builtin.command:
+    cmd: dnf -q repolist --enabled
+  register: base_system_repos
+  changed_when: false
+
+# Replaces funcs-setup-instance.sh L49
+- name: Enable the CodeReady Builder repository
+  ansible.builtin.command:
+    cmd: "dnf config-manager --set-enabled {{ base_system_crb_repo }}"
+  when: base_system_crb_repo not in base_system_repos.stdout.split()
+  changed_when: true
+
+# Replaces funcs-setup-instance.sh L50
+- name: Install the Red Hat update client for AWS
+  ansible.builtin.dnf:
+    name: rh-amazon-rhui-client
+    state: present
+  when: base_system_rhui_client | bool
+
+# Replaces funcs-setup-instance.sh L52-L78
+- name: Install the base packages
+  ansible.builtin.dnf:
+    name: "{{ base_system_packages }}"
+    state: present
+
+# Replaces funcs-setup-instance.sh L79
+- name: Install the tmux settings for the login user
+  ansible.builtin.copy:
+    src: tmux.conf
+    dest: "{{ sandbox_user_home }}/.tmux.conf"
+    owner: "{{ sandbox_user }}"
+    group: "{{ sandbox_user }}"
+    mode: "0644"
+
+# Replaces funcs-setup-instance.sh L84-L86
+- name: Install Python development files, pip and jq
+  ansible.builtin.dnf:
+    name: "{{ base_system_python_packages }}"
+    state: present
+
+# Replaces funcs-setup-instance.sh L88
+# The script's own comment records that this command fails; the script carries
+# on, and so does this.
+- name: Try to make python3 the default python
+  ansible.builtin.command:
+    cmd: alternatives --set python /usr/bin/python3
+  register: base_system_python_alternative
+  changed_when: false
+  failed_when: false
+
+# Replaces funcs-setup-instance.sh L91
+- name: Install boto3 for the login user
+  ansible.builtin.command:
+    argv: [python3, -m, pip, install, boto3]
+  become: true
+  become_user: "{{ sandbox_user }}"
+  register: base_system_boto3
+  changed_when: "'Successfully installed' in base_system_boto3.stdout"
+
+# Replaces funcs-setup-instance.sh L93
+- name: Install the AWS Systems Manager agent
+  ansible.builtin.dnf:
+    name: "{{ base_system_ssm_agent_url }}"
+    state: present
+    disable_gpg_check: true
+
+# Replaces funcs-setup-instance.sh L112-L115
+# The script tests for any aws on the PATH; this tests for the one the
+# installer makes.
+- name: Fetch the AWS command line installer
+  ansible.builtin.unarchive:
+    src: "{{ base_system_awscli_url }}"
+    dest: /tmp
+    remote_src: true
+    creates: /usr/local/bin/aws
+
+# Replaces funcs-setup-instance.sh L116
+- name: Install the AWS command line
+  ansible.builtin.command:
+    cmd: /tmp/aws/install
+    creates: /usr/local/bin/aws
+
+# Replaces funcs-setup-instance.sh L117-L118
+- name: Remove the AWS command line installer
+  ansible.builtin.file:
+    path: /tmp/aws
+    state: absent
+
+# Replaces funcs-setup-instance.sh L126
+- name: Look for the shared modulefiles directory
+  ansible.builtin.stat:
+    path: "{{ sandbox_modulefiles_dir }}"
+  register: base_system_modulefiles
+
+# Replaces funcs-setup-instance.sh L126-L132
+# "Only do this once", in the script's words: everything in this block happens
+# on the run that creates the directory and never again. The second step
+# writes to a file that the environment-modules package owns, before that
+# package is installed. Where the file is absent the script's write fails
+# unnoticed, and it is mirrored here by letting the step fail.
+- name: Set up the shared modulefiles directory, the first time only
+  when: not base_system_modulefiles.stat.exists
+  block:
+    # Replaces funcs-setup-instance.sh L127
+    - name: Create the shared modulefiles directory
+      ansible.builtin.file:
+        path: "{{ sandbox_modulefiles_dir }}"
+        state: directory
+        mode: "0755"
+
+    # Replaces funcs-setup-instance.sh L128
+    - name: Add it to the module search path
+      ansible.builtin.lineinfile:
+        path: /etc/environment-modules/modulespath
+        line: "{{ sandbox_modulefiles_dir }}"
+      failed_when: false
+
+    # Replaces funcs-setup-instance.sh L130-L131
+    - name: Give the environments directory to the login user
+      ansible.builtin.file:
+        path: "{{ sandbox_environments_dir }}"
+        state: directory
+        owner: "{{ sandbox_user }}"
+        group: "{{ sandbox_user }}"
+        mode: "0755"
+
+# Replaces funcs-setup-instance.sh L134
+- name: Install environment modules
+  ansible.builtin.dnf:
+    name: environment-modules
+    state: present
+
+# Replaces funcs-setup-instance.sh L136
+- name: See which implementation provides the module command
+  ansible.builtin.command:
+    cmd: alternatives --display modules.sh
+  register: base_system_modules_alternative
+  changed_when: false
+  failed_when: false
+
+# Replaces funcs-setup-instance.sh L136
+- name: Make Tcl environment modules provide the module command
+  ansible.builtin.command:
+    cmd: alternatives --set modules.sh /usr/share/Modules/init/profile.sh
+  when: "'link currently points to /usr/share/Modules/init/profile.sh' not in base_system_modules_alternative.stdout"
+  changed_when: true
+
+# Replaces funcs-setup-instance.sh L139-L141
+- name: Load environment modules in the login user's bash
+  ansible.builtin.lineinfile:
+    path: "{{ sandbox_user_home }}/.bashrc"
+    line: . /usr/share/Modules/init/bash
+    create: true
+    owner: "{{ sandbox_user }}"
+    group: "{{ sandbox_user }}"
+    mode: "0644"
+  register: base_system_bashrc_modules
+
+# Replaces funcs-setup-instance.sh L142
+# The script writes this line only when it has just written the bash one,
+# in the same place; a handler would move it to the end of the play.
+- name: Load environment modules in the login user's tcsh  # noqa: no-handler
+  ansible.builtin.lineinfile:
+    path: "{{ sandbox_user_home }}/.tcshrc"
+    line: source /usr/share/Modules/init/tcsh
+    create: true
+    owner: "{{ sandbox_user }}"
+    group: "{{ sandbox_user }}"
+    mode: "0644"
+  when: base_system_bashrc_modules is changed
+
+# Replaces funcs-setup-instance.sh L159
+# The script appends this line on every run; here it is written once.
+- name: Give every login shell an unlimited stack
+  ansible.builtin.lineinfile:
+    path: /etc/profile.d/custom.sh
+    line: ulimit -s unlimited
+    create: true
+    mode: "0644"

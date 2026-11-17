@@ -1,0 +1,10 @@
+# What this repository's own build and tests leave behind. Nothing else is
+# ignored: a file that turns up here unasked should be seen.
+.DS_Store
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+dist/
+# The collections `just init` installs from requirements.yml.
+.collections/

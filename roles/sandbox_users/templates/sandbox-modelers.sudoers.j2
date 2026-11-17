@@ -1,0 +1,11 @@
+# {{ ansible_managed }}
+# Lets each named user mount, unmount and set the owner and mode of FSx for
+# Lustre file systems under their own /ptmp directory, and nothing else.
+# Written by the sandbox_users role from sandbox_users_lustre_mounters.
+{% for user in sandbox_users_lustre_mounters %}
+
+{{ user }}    ALL = (root) NOPASSWD: /usr/bin/mount -t lustre -o * /ptmp/{{ user }}/*
+{{ user }}    ALL = (root) NOPASSWD: /usr/bin/umount * /ptmp/{{ user }}/*
+{{ user }}    ALL = (root) NOPASSWD: /usr/bin/chmod * /ptmp/{{ user }}/*
+{{ user }}    ALL = (root) NOPASSWD: /usr/bin/chown * /ptmp/{{ user }}/*
+{% endfor %}

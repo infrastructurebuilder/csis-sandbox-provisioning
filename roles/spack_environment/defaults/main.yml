@@ -1,0 +1,42 @@
+---
+# The script names the environment and its target as literals; they are not
+# taken from the target variable in environment-vars.sh.
+spack_environment_dir: "{{ sandbox_environments_dir }}/rhel10-x86_64_v3"
+
+# Everything in the environment's spack.yaml except its specs, in the shape of
+# that file (stage 9, decision 2). The template writes the whole file
+# (decision 3), so this mapping is the environment's configuration.
+#
+# view and concretizer:unify are what "spack env create" writes into a new
+# spack.yaml; the script keeps them. The other three are the script's
+# "spack config add" lines (funcs-setup-instance.sh L756, L761 and L762).
+spack_environment_config:
+  view: true
+  concretizer:
+    unify: true
+    targets:
+      granularity: generic
+  modules:
+    default:
+      enable: [tcl]
+  packages:
+    all:
+      require: [target=x86_64_v3]
+
+spack_environment_compiler: "intel-oneapi-compilers@{{ oneapi_version }}"
+
+# What build_spack-environment adds. Its list of NCEP libraries is empty in
+# the script, so these two are all.
+spack_environment_specs:
+  - "esmf@{{ esmf_version }}+pnetcdf+mpi ^intel-oneapi-mpi@{{ intel_mpi_version }} ^zlib-ng+compat %{{ spack_environment_compiler }}"
+  - "petsc+mpi %{{ spack_environment_compiler }}"
+
+# "installed" builds the environment; "concretized" only works out what it
+# would build. The container test uses "concretized" (stage 10): Spack's fake
+# installs leave python-venv without a python3, which the rest of the ESMF and
+# PETSc build tree needs.
+spack_environment_state: installed
+
+# The build compiles everything and takes hours. Ansible starts it, lets go of
+# the connection and asks after it once a minute, for at most this long.
+spack_environment_build_timeout: 86400

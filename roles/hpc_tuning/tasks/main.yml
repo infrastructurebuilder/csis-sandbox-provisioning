@@ -1,0 +1,37 @@
+---
+# configure_optimizations: a tuned profile for HPC instance types.
+#
+# The script first switches to the stock network-latency profile and then, a
+# few lines later, to its own profile, which includes that one. Only the
+# second switch has a lasting effect and only it is made here.
+
+# Replaces funcs-setup-instance.sh L194
+- name: Create the directory for the profile
+  ansible.builtin.file:
+    path: "/etc/tuned/profiles/{{ hpc_tuning_profile }}"
+    state: directory
+    mode: "0755"
+
+# Replaces funcs-setup-instance.sh L195-L209
+# tests/test_parity.py compares this file with the text in the script.
+- name: Install the profile
+  ansible.builtin.copy:
+    src: tuned.conf
+    dest: "/etc/tuned/profiles/{{ hpc_tuning_profile }}/tuned.conf"
+    mode: "0644"
+  register: hpc_tuning_conf
+
+# Replaces funcs-setup-instance.sh L211
+- name: See which profile is active
+  ansible.builtin.command:
+    cmd: tuned-adm active
+  register: hpc_tuning_active
+  changed_when: false
+  failed_when: false
+
+# Replaces funcs-setup-instance.sh L211
+- name: Switch to the profile
+  ansible.builtin.command:
+    cmd: "tuned-adm profile {{ hpc_tuning_profile }}"
+  when: hpc_tuning_conf is changed or hpc_tuning_profile not in hpc_tuning_active.stdout
+  changed_when: true

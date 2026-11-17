@@ -1,0 +1,29 @@
+---
+# The users' addresses in the security group (add-users.py L265-L309).
+
+# Replaces add-users.py L280-L281
+- name: Read the security group
+  amazon.aws.ec2_security_group_info:
+    filters:
+      group-id: "{{ sandbox_users_ssh_security_group }}"
+  register: sandbox_users_sg
+
+# Replaces add-users.py L277-L309
+# The script prints the error when a rule exists already; here existing
+# rules are kept and only a missing one is added.
+- name: Add a rule for each address
+  amazon.aws.ec2_security_group:
+    name: "{{ sandbox_users_sg.security_groups[0].group_name }}"
+    description: "{{ sandbox_users_sg.security_groups[0].description }}"
+    vpc_id: "{{ sandbox_users_sg.security_groups[0].vpc_id }}"
+    purge_rules: false
+    purge_rules_egress: false
+    purge_tags: false
+    rules:
+      - proto: tcp
+        ports: [22]
+        cidr_ip: "{{ item.1 }}/32"
+        rule_desc: "{{ item.0.full_name | default(item.0.username) }} IP {{ item.0.email | default('') }}"
+  loop: "{{ sandbox_users_present | subelements('ip_addresses', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.0.username }}: {{ item.1 }}"

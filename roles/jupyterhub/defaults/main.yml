@@ -1,0 +1,66 @@
+---
+# JupyterHub in conda's base environment, behind nginx, run by a system user:
+# what scripts/install_conda_jupyterhub.sh and the files it installs set up.
+# The values are the scripts' and the files', but for what only a site can
+# say, which has no default here (stage 13): the role refuses to run until
+# the site gives jupyterhub_server_name, jupyterhub_oauth_callback_url,
+# jupyterhub_ssl_certificate, jupyterhub_ssl_certificate_key,
+# jupyterhub_admin_users_literal and jupyterhub_username_map_literal.
+# README.md says what each is.
+
+# Conda. The script installs Miniconda py310_23.1.0 (L12-L14, from an address
+# with no host). Its solver did not finish the script's conda-forge install in
+# 25 minutes, so by the operator's decision (stage 7) this installs Miniforge
+# instead: conda from conda-forge, with the libmamba solver and conda-forge as
+# its only channel. The prefix and the packages are the script's.
+jupyterhub_conda_prefix: /opt/conda
+jupyterhub_conda_installer_version: 25.3.0-3
+jupyterhub_conda_installer: "Miniforge3-{{ jupyterhub_conda_installer_version }}-Linux-x86_64.sh"
+jupyterhub_conda_installer_url: >-
+  https://github.com/conda-forge/miniforge/releases/download/{{ jupyterhub_conda_installer_version }}/{{ jupyterhub_conda_installer }}
+# Who owns the conda installation, so that it is changed without sudo (L19).
+jupyterhub_conda_owner: "{{ sandbox_user }}"
+jupyterhub_conda_forge_packages: [jupyterhub, oauthenticator, sudospawner]
+jupyterhub_conda_packages: [jupyterlab, notebook, nb_conda_kernels]
+
+# The system user that runs the hub, and the group of the hub's users.
+jupyterhub_user: jupyter
+jupyterhub_group: jupyterhub
+jupyterhub_config_dir: /etc/jupyterhub
+
+# system/jupytersudoers: who the hub may start servers for. The file names the
+# hub's user and one person; the person is left to the site.
+jupyterhub_spawn_users: [jupyter]
+
+# system/jupyterhub_config.py: the settings it makes, as it makes them. The
+# client id and secret are empty in the file and must come from the site's
+# secrets, never from this repository.
+jupyterhub_authenticator_class: GoogleOAuthenticator
+# jupyterhub_oauth_callback_url: the site's (the original file names one
+# site's: https://jupyterhub.rpsgroup.com/hub/oauth_callback).
+jupyterhub_oauth_client_id: ""
+jupyterhub_oauth_client_secret: ""
+jupyterhub_create_system_users: true
+jupyterhub_delete_invalid_users: false
+# jupyterhub_admin_users_literal, jupyterhub_username_map_literal: the site's,
+# as Python literals written into the file as they are (the original file has
+# placeholders: "{'jupyter', 'user1'}" and '{ "user1@gmail.com": "user1", ... }').
+jupyterhub_bind_url: "http://:8000"
+jupyterhub_spawner_class: sudospawner.SudoSpawner
+jupyterhub_default_url: /lab
+
+# system/jupyterhub.conf: nginx in front of the hub, with TLS.
+# jupyterhub_server_name, jupyterhub_ssl_certificate,
+# jupyterhub_ssl_certificate_key: the site's (the original file names
+# sandbox-dev.ioos.us and /etc/ssl/star_ioos_us.crt and .key, which nothing
+# puts there).
+jupyterhub_proxy_target: http://127.0.0.1:8000
+
+# What the site must give; checked before anything is installed.
+jupyterhub_required_variables:
+  - jupyterhub_server_name
+  - jupyterhub_oauth_callback_url
+  - jupyterhub_ssl_certificate
+  - jupyterhub_ssl_certificate_key
+  - jupyterhub_admin_users_literal
+  - jupyterhub_username_map_literal

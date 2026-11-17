@@ -1,0 +1,15 @@
+---
+# install_python_modules_user: the Python packages the workflows need, in the
+# login user's own site directory.
+
+# Replaces funcs-setup-instance.sh L1219-L1236
+- name: Install the Python packages for the login user
+  ansible.builtin.command:
+    argv: "{{ ['python3', '-m', 'pip', 'install'] + (['--upgrade'] if item.upgrade else []) + [item.spec] }}"
+  become: true
+  become_user: "{{ sandbox_user }}"
+  loop: "{{ python_user_env_packages }}"
+  loop_control:
+    label: "{{ item.spec }}"
+  register: python_user_env_pip
+  changed_when: "'Successfully installed' in python_user_env_pip.stdout"

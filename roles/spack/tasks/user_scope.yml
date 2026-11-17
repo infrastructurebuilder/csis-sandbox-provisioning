@@ -1,0 +1,54 @@
+---
+# Stage 12: read the two settings the script's "config add" without --scope
+# leaves in the login user's scope, and the site scope's, and say which of
+# the user's are leftovers (the same as the site's) and which were chosen
+# (different). Sets spack_user_scope: {leftover: <settings to remove>,
+# chosen: [<path, user value, site value>]}. Reads files only; runs no Spack.
+# Included by main.yml; tests/test_user_scope.py applies it alone.
+
+# New: see main.yml's comment on the stage 12 tasks.
+- name: Read the two settings in the login user's scope and in the site scope
+  ansible.builtin.slurp:
+    src: "{{ item.value }}"
+  loop: "{{ spack_scope_files | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  vars:
+    spack_scope_files:
+      user_config: "{{ sandbox_user_home }}/.spack/config.yaml"
+      user_modules: "{{ sandbox_user_home }}/.spack/modules.yaml"
+      site_config: "{{ spack_dir }}/etc/spack/site/config.yaml"
+      site_modules: "{{ spack_dir }}/etc/spack/site/modules.yaml"
+  register: spack_scope_read
+  # A file that is not there holds nothing.
+  failed_when: spack_scope_read.content is not defined and 'file not found' not in (spack_scope_read.msg | default('') | lower)
+
+# New: what is a leftover, and what was chosen.
+- name: Work out which of the two are leftovers in the login user's scope
+  ansible.builtin.set_fact:
+    spack_user_scope: "{{ spack_user_scope_found }}"
+  vars:
+    spack_scopes: >-
+      {%- set out = {} -%}
+      {%- for read in spack_scope_read.results -%}
+      {%- set _ = out.update({read.item.key: ((read.content | b64decode | from_yaml) if read.content is defined else {}) or {}}) -%}
+      {%- endfor -%}
+      {{ out }}
+    spack_padding: >-
+      {{ {'user': ((spack_scopes.user_config.config | default({}) or {}).install_tree | default({}) or {}).padded_length | default(none),
+          'site': ((spack_scopes.site_config.config | default({}) or {}).install_tree | default({}) or {}).padded_length | default(none)} }}
+    spack_tcl: >-
+      {{ {'user': ((spack_scopes.user_modules.modules | default({}) or {}).default | default({}) or {}).enable | default(none),
+          'site': ((spack_scopes.site_modules.modules | default({}) or {}).default | default({}) or {}).enable | default(none)} }}
+    spack_user_scope_found:
+      leftover: >-
+        {{ {}
+           | combine({'config': {'install_tree': {'padded_length': none}}}
+                     if spack_padding.user is not none and spack_padding.user == spack_padding.site else {})
+           | combine({'modules': {'default': {'enable': none}}}
+                     if spack_tcl.user is not none and spack_tcl.user == spack_tcl.site else {}) }}
+      chosen: >-
+        {{ ([{'path': 'config:install_tree:padded_length', 'user': spack_padding.user, 'site': spack_padding.site}]
+            if spack_padding.user is not none and spack_padding.user != spack_padding.site else [])
+           + ([{'path': 'modules:default:enable', 'user': spack_tcl.user, 'site': spack_tcl.site}]
+              if spack_tcl.user is not none and spack_tcl.user != spack_tcl.site else []) }}

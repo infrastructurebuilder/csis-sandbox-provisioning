@@ -1,0 +1,18 @@
+---
+fsx_lustre_client_repo_url: https://fsx-lustre-client-repo.s3.amazonaws.com/el/10/fsx-lustre-client.repo
+fsx_lustre_client_repo_file: /etc/yum.repos.d/aws-fsx.repo
+
+# The script recognises two kernels. For the second it points the repository
+# at the client built for RHEL 10.1; for any other it changes nothing.
+fsx_lustre_client_kernel: "{{ ansible_facts.kernel }}"
+fsx_lustre_client_kernel_10_2: "6.12.0-211"
+fsx_lustre_client_kernel_10_1: "6.12.0-124"
+
+# The repository definition as the script leaves it. The signature check is
+# turned off, always. On a 10.1 kernel the first "10" on each line becomes
+# "10.1", which is what the script's sed does.
+fsx_lustre_client_repo_text: >-
+  {{ (fsx_lustre_client_repo.content | regex_replace('gpgcheck=1', 'gpgcheck=0')
+  | regex_replace('^(.*?)10', '\g<1>10.1', multiline=true))
+  if fsx_lustre_client_kernel_10_1 in fsx_lustre_client_kernel
+  else (fsx_lustre_client_repo.content | regex_replace('gpgcheck=1', 'gpgcheck=0')) }}

@@ -1,0 +1,106 @@
+---
+# install_efa_driver: the kernel driver for the Elastic Fabric Adapter.
+
+# Replaces funcs-setup-instance.sh L513-L514
+- name: Install what the driver build needs
+  ansible.builtin.dnf:
+    name:
+      - kernel-devel
+      - kernel-modules-extra
+    state: present
+
+# New: the script updates every package and then builds this driver without a
+# reboot. If the update brought a new kernel, the driver is built for a kernel
+# that is not the one running. The operator chose to keep that and be told.
+# No module reports the order in which packages were installed.
+- name: Find the newest installed kernel  # noqa: command-instead-of-module
+  ansible.builtin.command:
+    cmd: rpm -q --last kernel-core
+  register: efa_driver_kernels
+  changed_when: false
+  failed_when: false
+
+# New: see the task above.
+- name: Say so when the running kernel is not the newest installed
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: the running kernel is {{ ansible_facts.kernel }} but a newer one is installed
+      ({{ efa_driver_kernels.stdout_lines[0] | default('unknown') }}).
+      The EFA and Lustre drivers are built without a reboot, as the script does.
+  when:
+    - efa_driver_kernels.stdout_lines | length > 0
+    - ansible_facts.kernel not in efa_driver_kernels.stdout_lines[0]
+
+# New: see defaults/main.yml for what this record is and how far it is trusted.
+- name: See whether this version of the installer has already run
+  ansible.builtin.command:
+    cmd: "grep -q 'EFA installer version: {{ efa_installer_version }}' {{ efa_driver_record }}"
+  register: efa_driver_installed
+  changed_when: false
+  failed_when: false
+
+# Replaces funcs-setup-instance.sh L516-L557
+- name: Download, unpack and run the installer
+  when: efa_driver_installed.rc != 0
+  block:
+    # Replaces funcs-setup-instance.sh L518-L519
+    - name: Clear the working directory
+      ansible.builtin.file:
+        path: "{{ efa_driver_workdir }}"
+        state: absent
+
+    # Replaces funcs-setup-instance.sh L520-L521
+    - name: Create the working directory
+      ansible.builtin.file:
+        path: "{{ efa_driver_workdir }}"
+        state: directory
+        owner: "{{ sandbox_user }}"
+        group: "{{ sandbox_user }}"
+        mode: "0755"
+
+    # Replaces funcs-setup-instance.sh L534-L536
+    - name: Download and unpack the installer
+      ansible.builtin.unarchive:
+        src: "{{ efa_driver_url }}"
+        dest: "{{ efa_driver_workdir }}"
+        remote_src: true
+
+    # Replaces funcs-setup-instance.sh L538 L549-L551
+    - name: Install the driver without AWS's libfabric and Open MPI
+      ansible.builtin.command:
+        cmd: ./efa_installer.sh -y --minimal
+        chdir: "{{ efa_driver_workdir }}/aws-efa-installer"
+      when: efa_driver_minimal | bool
+      changed_when: true
+
+    # Replaces funcs-setup-instance.sh L554-L555
+    - name: Find the AWS libfabric package that ships with the installer
+      ansible.builtin.find:
+        paths: "{{ efa_driver_workdir }}/aws-efa-installer/{{ efa_driver_rpm_dir }}"
+        patterns: "libfabric-aws-[0-9]*"
+      register: efa_driver_libfabric
+      when: efa_driver_minimal | bool
+
+    # Replaces funcs-setup-instance.sh L556
+    - name: Install the AWS libfabric package
+      ansible.builtin.dnf:
+        name: "{{ efa_driver_libfabric.files | map(attribute='path') | list }}"
+        state: present
+        disable_gpg_check: true
+      when: efa_driver_minimal | bool
+
+    # Replaces funcs-setup-instance.sh L538 L542-L544
+    - name: Install the driver with AWS's libfabric and Open MPI
+      ansible.builtin.command:
+        cmd: ./efa_installer.sh -y
+        chdir: "{{ efa_driver_workdir }}/aws-efa-installer"
+      when: not (efa_driver_minimal | bool)
+      changed_when: true
+
+    # Replaces funcs-setup-instance.sh L547
+    - name: Undo the PATH change the full install makes
+      ansible.builtin.copy:
+        src: zippy_efa.sh
+        dest: /etc/profile.d/zippy_efa.sh
+        mode: "0644"
+      when: not (efa_driver_minimal | bool)

@@ -1,0 +1,214 @@
+---
+# install_spack: Spack itself, on the EFS volume, owned by the login user.
+#
+# The script does nothing at all when /save is missing, and says so. The same
+# condition is on every task here.
+
+# Replaces funcs-setup-instance.sh L637
+- name: Look for the save directory
+  ansible.builtin.stat:
+    path: "{{ sandbox_save_dir }}"
+  register: spack_save
+
+# Replaces funcs-setup-instance.sh L637-L640
+- name: Say so when there is nowhere to install Spack
+  ansible.builtin.debug:
+    msg: "{{ sandbox_save_dir }} does not exist. Setup the paths first."
+  when: not spack_save.stat.exists
+
+# Replaces funcs-setup-instance.sh L642
+- name: Look for an existing Spack
+  ansible.builtin.stat:
+    path: "{{ spack_dir }}"
+  register: spack_existing
+  when: spack_save.stat.exists
+
+# Replaces funcs-setup-instance.sh L642-L648
+# As in the script, a directory that is already there is left exactly as it
+# is: it is not updated and its version is not checked.
+- name: Fetch Spack, when it is not there yet
+  when:
+    - spack_save.stat.exists
+    - not spack_existing.stat.exists
+  block:
+    # Replaces funcs-setup-instance.sh L643-L644
+    - name: Create the Spack directory for the login user
+      ansible.builtin.file:
+        path: "{{ spack_dir }}"
+        state: directory
+        owner: "{{ sandbox_user }}"
+        group: "{{ sandbox_user }}"
+        mode: "0755"
+
+    # Replaces funcs-setup-instance.sh L645-L647
+    - name: Clone Spack at the chosen version
+      ansible.builtin.git:
+        repo: https://github.com/spack/spack.git
+        dest: "{{ spack_dir }}"
+        version: "{{ spack_version }}"
+      become: true
+      become_user: "{{ sandbox_user }}"
+
+# Replaces funcs-setup-instance.sh L651-L653
+- name: Load Spack in the login user's bash
+  ansible.builtin.lineinfile:
+    path: "{{ sandbox_user_home }}/.bashrc"
+    line: ". {{ spack_dir }}/share/spack/setup-env.sh"
+    create: true
+    owner: "{{ sandbox_user }}"
+    group: "{{ sandbox_user }}"
+    mode: "0644"
+  register: spack_bashrc
+  when: spack_save.stat.exists
+
+# Replaces funcs-setup-instance.sh L654
+# The script writes this line only when it has just written the bash one.
+- name: Load Spack in the login user's tcsh
+  ansible.builtin.lineinfile:
+    path: "{{ sandbox_user_home }}/.tcshrc"
+    line: "source {{ spack_dir }}/share/spack/setup-env.csh"
+    create: true
+    owner: "{{ sandbox_user }}"
+    group: "{{ sandbox_user }}"
+    mode: "0644"
+  when:
+    - spack_save.stat.exists
+    - spack_bashrc is changed
+
+# Replaces funcs-setup-instance.sh L661
+# The script loads Spack into its shell and then runs seven Spack commands.
+# Here Spack is called by its path, and the commands are a list of steps for
+# the setup role of the infrastructurebuilder.csis_spack collection (stage
+# 11): each step is compared with what Spack has and changes only what
+# differs, so nothing has to be hashed before and after. Each step names the
+# line it replaces.
+#
+# The steps are applied as the login user, who owns Spack's tree.
+#
+# Until stage 11 the Intel modules were loaded here first, once the
+# intel_oneapi role had run, in the belief that "compiler find" without them
+# removes the Intel compilers. With Spack v1.2.0 it does not: detection only
+# ever adds (tried with the real oneAPI). Nothing is loaded here any more.
+- name: Configure Spack, find the compilers and externals, add the public mirror
+  ansible.builtin.include_role:
+    name: infrastructurebuilder.csis_spack.setup
+    apply:
+      become: true
+      become_user: "{{ sandbox_user }}"
+  vars:
+    spack_setup_spack: "{{ spack_exe }}"
+    spack_setup_scope: site
+    spack_setup:
+      # Replaces funcs-setup-instance.sh L672-L673
+      # The script's "config add" has no --scope, so its two settings land in
+      # the login user's ~/.spack and no other user has them. Here they go to
+      # the site scope with everything else (stage 11, decision 3).
+      - kind: config
+        settings:
+          config:
+            install_tree:
+              padded_length: 73
+          modules:
+            default:
+              enable: [tcl]
+      # Replaces funcs-setup-instance.sh L680
+      - kind: detect
+        compilers: true
+      # Replaces funcs-setup-instance.sh L691
+      - kind: detect
+        externals: true
+      # Replaces funcs-setup-instance.sh L692
+      - kind: detect
+        externals: [cmake]
+        not_buildable: true
+      # Replaces funcs-setup-instance.sh L699
+      # Spack v1.2.0 already has a source-only mirror called spack-public in
+      # its defaults; this puts a binary one of the same name in the site
+      # scope, which takes precedence. The script's second run fails on
+      # "already exists" and ignores it; the step changes nothing then.
+      - kind: mirror
+        name: spack-public
+        url: https://cache.spack.io
+      # Replaces funcs-setup-instance.sh L700
+      - kind: gpg_key
+        from_mirrors: true
+  when: spack_save.stat.exists
+
+# New: (stage 12) on a head node built by the script, or by these playbooks
+# before stage 11, the two settings of the first step are in the login user's
+# scope (~/.spack), where the script's "config add" without --scope put them.
+# The user scope wins over the site scope, so once the site's values change
+# the login user alone would keep the old ones. Where the user scope holds
+# exactly what the site scope now holds, that copy is a leftover and is
+# removed; where it holds something else, someone chose it, and it is left
+# and reported.
+#
+# These three tasks, and tasks/user_scope.yml, can go once no head node built before stage 11 is left
+# (REMINDERS.md). A node built since has nothing to remove, and they change
+# nothing on it.
+- name: Work out which of the two are leftovers in the login user's scope
+  ansible.builtin.include_tasks: user_scope.yml
+  when: spack_save.stat.exists
+
+# New: (stage 12) the removal, through the collection like the steps above.
+- name: Remove the leftovers from the login user's scope
+  ansible.builtin.include_role:
+    name: infrastructurebuilder.csis_spack.setup
+    apply:
+      become: true
+      become_user: "{{ sandbox_user }}"
+  vars:
+    spack_setup_spack: "{{ spack_exe }}"
+    spack_setup:
+      # New: see the comment on the stage 12 tasks above.
+      - kind: config
+        scope: user
+        state: absent
+        settings: "{{ spack_user_scope.leftover }}"
+  when:
+    - spack_save.stat.exists
+    - spack_user_scope.leftover | length > 0
+
+# New: (stage 12) a value someone chose is left, and said.
+- name: Say which settings in the login user's scope were chosen, and left
+  ansible.builtin.debug:
+    msg: >-
+      Left in {{ sandbox_user }}'s scope, because it differs from the site's:
+      {% for item in spack_user_scope.chosen %}{{ item.path }} is {{ item.user | to_json }}
+      there and {{ item.site | to_json }} in the site scope{{ '; ' if not loop.last else '' }}{% endfor %}.
+  when:
+    - spack_save.stat.exists
+    - spack_user_scope.chosen | length > 0
+
+# New: the site's own build cache and its key, which the script leaves
+# commented out (L663-L670, L675-L678) and the operator added by hand with
+# spack-pubkey.sh. It is applied only when spack_site_mirror is true, which it
+# is not by default (stage 11, decision 5), so a build does what it did.
+- name: Trust the site mirror's key and add the site mirror
+  ansible.builtin.include_role:
+    name: infrastructurebuilder.csis_spack.setup
+    apply:
+      become: true
+      become_user: "{{ sandbox_user }}"
+  vars:
+    spack_setup_spack: "{{ spack_exe }}"
+    spack_setup_scope: site
+    spack_setup:
+      # Replaces spack-pubkey.sh L8-L9 L11
+      # The script downloads the key to a file and trusts whatever it got.
+      # Here the key is trusted only if it has the fingerprint expected.
+      - kind: gpg_key
+        key: "{{ spack_key_url }}"
+        fingerprint: "{{ spack_key_fingerprint }}"
+      # Replaces spack-pubkey.sh L18
+      # The script's "mirror add" has no --scope either; the mirror goes to
+      # the site scope here, as the settings above do.
+      - kind: mirror
+        name: s3-mirror
+        url: "{{ spack_mirror }}"
+      # Replaces spack-pubkey.sh L19
+      - kind: gpg_key
+        from_mirrors: true
+  when:
+    - spack_save.stat.exists
+    - spack_site_mirror | bool

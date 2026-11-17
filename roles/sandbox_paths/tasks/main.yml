@@ -1,0 +1,48 @@
+---
+# setup_paths: the result and scratch directories on the EFS volume.
+
+# Replaces funcs-setup-instance.sh L270
+- name: Look for the EFS mount
+  ansible.builtin.stat:
+    path: "{{ sandbox_efs_mount }}"
+  register: sandbox_paths_efs
+
+# Replaces funcs-setup-instance.sh L270-L273
+- name: Stop unless the EFS volume is mounted
+  ansible.builtin.assert:
+    that: sandbox_paths_efs.stat.isdir | default(false)
+    fail_msg: "ERROR: EFS disk is not mounted"
+    quiet: true
+
+# Replaces funcs-setup-instance.sh L275-L280 L284-L287
+- name: Create the scratch and result directories on EFS
+  ansible.builtin.file:
+    path: "{{ sandbox_efs_mount }}/{{ item }}"
+    state: directory
+    group: wheel
+    mode: "0777"
+  loop:
+    - ptmp
+    - com
+
+# Replaces funcs-setup-instance.sh L281 L288
+- name: Link them at the root of the filesystem
+  ansible.builtin.file:
+    src: "{{ sandbox_efs_mount }}/{{ item }}"
+    dest: "/{{ item }}"
+    state: link
+  loop:
+    - ptmp
+    - com
+
+# Replaces funcs-setup-instance.sh L293-L294
+- name: Give the login user a directory in each
+  ansible.builtin.file:
+    path: "/{{ item }}/{{ sandbox_user }}"
+    state: directory
+    owner: "{{ sandbox_user }}"
+    group: "{{ sandbox_user }}"
+    mode: "0755"
+  loop:
+    - com
+    - ptmp

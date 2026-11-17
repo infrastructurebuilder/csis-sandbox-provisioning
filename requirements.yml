@@ -1,0 +1,11 @@
+---
+# site.yml needs infrastructurebuilder.csis_spack, to set Spack up and for the
+# Spack environment (stages 10 and 11); it is taken from its repository at a tag until it is decided
+# whether it goes to Ansible Galaxy. node-image.yml needs amazon.aws, held to
+# the series that supports the ansible-core 2.16 that RHEL 10 ships.
+collections:
+  - name: https://github.com/infrastructurebuilder/ansible-collection-csis-spack.git
+    type: git
+    version: "0.3.1"
+  - name: amazon.aws
+    version: ">=9.0.0,<10.0.0"

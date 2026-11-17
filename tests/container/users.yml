@@ -1,0 +1,17 @@
+---
+# The users the container test adds: the one person of
+# legacy/system/sample.users.csv (tests/test_ops_parity.py holds the two
+# together), with a public key made for the test (its private half was thrown
+# away). converge.sh removes the user again at the end, which tests
+# sandbox_users_absent.
+sandbox_users_present:
+  - full_name: John Doe
+    email: john.doe@example.com
+    username: jdoe
+    uid: 1001
+    groups:
+      - {name: developers, gid: 2001}
+      - {name: staff, gid: 12002}
+    public_key: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILI9kPoq0VA7sDBQN7HSGg3IFxLIdfwwQuJNreD+xzUC jdoe-test-key
+    ip_addresses: []
+sandbox_users_lustre_mounters: [jdoe]
