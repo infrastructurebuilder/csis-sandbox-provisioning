@@ -8,3 +8,5 @@ __pycache__/
 dist/
 # The collections `just init` installs from requirements.yml.
 .collections/
+# Per-machine agent settings; the shared Spec Kit skills under .claude/skills are tracked.
+.claude/settings.local.json
