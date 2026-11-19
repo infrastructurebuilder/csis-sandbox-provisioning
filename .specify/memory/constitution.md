@@ -41,7 +41,7 @@ not happen cannot be trusted.
 **Why:** the playbooks are to build any sandbox, and a repository holding one
 site's people is not one to share.
 
-<!-- csis-shared: begin, version 2.0.0. Written by Cloud-Sandbox's `just constitution` from exportit/tools/constitution/shared.md; do not edit here. -->
+<!-- csis-shared: begin, version 2.0.1. Written by Cloud-Sandbox's `just constitution` from exportit/tools/constitution/shared.md; do not edit here. -->
 
 ### S1. Acceptance Tests Run Through the Justfile
 
@@ -130,10 +130,10 @@ work.
   `tasks.md` (the steps, ticked as they are done). They are made with
   `/speckit-specify`, `/speckit-plan` and `/speckit-tasks`, and carried out
   with `/speckit-implement`.
-- **Work that spans units is planned in Cloud-Sandbox**, as a stage under its
-  `SPECS/`, because Cloud-Sandbox is the one place where every unit is checked
+- **Work that spans units is planned in Cloud-Sandbox**, as a spec under its
+  `specs/`, because Cloud-Sandbox is the one place where every unit is checked
   out beside the others. A spec here covers work within this repository; a
-  stage there may give rise to one.
+  spec there may give rise to one.
 - **Open questions are settled before planning**, with `/speckit-clarify` or
   by asking the operator, and recorded in the spec under Clarifications
   (principle S2).
@@ -187,4 +187,4 @@ production profile; the collection `infrastructurebuilder.csis_spack` pinned by
 tag in `requirements.yml`; RHEL 10 on AWS as the target; the container test
 needs Docker and takes about ten minutes.
 
-**Version**: 2.0.0 | **Ratified**: 2026-11-18 | **Last Amended**: 2026-11-18
+**Version**: 2.0.1 | **Ratified**: 2026-11-18 | **Last Amended**: 2026-11-19

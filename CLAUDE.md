@@ -11,7 +11,7 @@ it adds none of its own.
   `/speckit-plan`, `/speckit-tasks` and `/speckit-implement`. A rule that says
   plans go in `PLAN.md` is met here by a spec. There is no `PLAN.md` in this
   repository; do not create one. Work that spans units is planned in
-  Cloud-Sandbox, as a stage under its `SPECS/`.
+  Cloud-Sandbox, as a spec under its `specs/`.
 - **A copied file is not edited here while Cloud-Sandbox holds its
   original**, that is, while Cloud-Sandbox's `exportit/sandbox-provisioning.map` does not
   say `owned`: it changes there, by the original or by a patch, and
