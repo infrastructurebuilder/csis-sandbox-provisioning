@@ -159,7 +159,7 @@ that role's `defaults/main.yml`.
 You need `just`, `uv` and `shellcheck`; `full-test` also needs Docker.
 
 ```sh
-just init        # tool environment, and the collections: infrastructurebuilder.csis_spack (tag 0.3.1) and amazon.aws
+just init        # tool environment, and the collections: infrastructurebuilder.csis_spack (from Ansible Galaxy, >=0.0.1,<0.1.0) and amazon.aws
 just test        # syntax, ansible-lint, shellcheck, and the comparisons with the scripts
 just full-test   # also applies eight roles, users.yml and jupyterhub.yml to an AlmaLinux 10 container, twice
 ```
