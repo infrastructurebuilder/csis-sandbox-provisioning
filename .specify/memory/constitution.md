@@ -41,7 +41,7 @@ not happen cannot be trusted.
 **Why:** the playbooks are to build any sandbox, and a repository holding one
 site's people is not one to share.
 
-<!-- csis-shared: begin, version 1.0.0. Written by Cloud-Sandbox's `just constitution` from exportit/tools/constitution/shared.md; do not edit here. -->
+<!-- csis-shared: begin, version 2.0.0. Written by Cloud-Sandbox's `just constitution` from exportit/tools/constitution/shared.md; do not edit here. -->
 
 ### S1. Acceptance Tests Run Through the Justfile
 
@@ -80,28 +80,35 @@ and between people.
 **Why:** the operator reviews each plan and owns each decision before work is
 spent on it; and a push or a release cannot be taken back.
 
-### S3. A Copied File Is Changed in Cloud-Sandbox
+### S3. A Copied File: Changed in Cloud-Sandbox, Then Owned Here
 
 This repository was made on 2026-11-17 from a unit of
 `infrastructurebuilder/Cloud-Sandbox`, where it is kept as a git submodule
-under `exportit/`. Many of its files are copies of files that are still in
-Cloud-Sandbox, its originals, and Cloud-Sandbox's mapping file for this unit
-(`exportit/<unit>.map`) says which.
+under `exportit/`. Many of its files are copies of files of the original
+repository, and Cloud-Sandbox's mapping file for this unit
+(`exportit/<unit>.map`) says which. What may change them depends on whether
+Cloud-Sandbox still holds their originals:
 
-- While its original is in Cloud-Sandbox, a copied file is never edited here.
-  It changes when its original changes, or by a patch in Cloud-Sandbox
-  (`exportit/<unit>.patches/`); Cloud-Sandbox's `just export <unit>` writes
-  the result into this repository, and its `just export-check` fails on any
-  copied file that differs from its original plus its patches.
-- Only a file the mapping file calls `new` is this repository's own to change
-  here: its build, its tests, its pages, and the files written only for it.
-- A spec that needs a copied file changed says so, and the patch or the change
-  to the original is among its tasks, made in Cloud-Sandbox.
-- This principle is removed, by an amendment of the shared part, when
-  Cloud-Sandbox deletes this unit's originals (its stage 22).
+- **While it does** (the mapping file does not say `owned`), a copied file is
+  never edited here. It changes when its original changes, or by a patch in
+  Cloud-Sandbox (`exportit/<unit>.patches/`); Cloud-Sandbox's `just export
+  <unit>` writes the result into this repository, and its `just test` fails
+  on any copied file that differs from the original at the unit's baseline
+  plus its patches. Only a file the mapping file calls `new` is this
+  repository's own to change here, and a spec that needs a copied file
+  changed puts the patch among its tasks, made in Cloud-Sandbox.
+- **Once Cloud-Sandbox has deleted this unit's originals** (its stage 22; the
+  mapping file says `owned`), this repository owns its copied files and
+  changes them here like any other. A later change to the original repository
+  arrives by sync: Cloud-Sandbox's `just export-sync` merges the original's
+  new commits onto a feature branch here, with their authors, and a conflict
+  with this repository's own changes stops the sync for the operator to
+  settle. Cloud-Sandbox's `just export-lineage` holds this repository's
+  history to the original's, which is what a sync depends on.
 
-**Why:** the copies are held to their originals, file for file, so that every
-difference between the two is written down where both can be seen.
+**Why:** while both exist, the copies are held to their originals file for
+file, so that every difference is written down where both can be seen; once
+the originals are gone, the unit is the only place its files live.
 
 ### S4. Nothing Goes Toward `ioos`
 
@@ -180,4 +187,4 @@ production profile; the collection `infrastructurebuilder.csis_spack` pinned by
 tag in `requirements.yml`; RHEL 10 on AWS as the target; the container test
 needs Docker and takes about ten minutes.
 
-**Version**: 1.0.0 | **Ratified**: 2026-11-18 | **Last Amended**: 2026-11-18
+**Version**: 2.0.0 | **Ratified**: 2026-11-18 | **Last Amended**: 2026-11-18

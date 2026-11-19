@@ -6,6 +6,6 @@
 collections:
   - name: https://github.com/infrastructurebuilder/ansible-collection-csis-spack.git
     type: git
-    version: "0.3.1"
+    version: "0.0.1"
   - name: amazon.aws
     version: ">=9.0.0,<10.0.0"

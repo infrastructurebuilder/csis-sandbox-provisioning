@@ -12,10 +12,12 @@ it adds none of its own.
   plans go in `PLAN.md` is met here by a spec. There is no `PLAN.md` in this
   repository; do not create one. Work that spans units is planned in
   Cloud-Sandbox, as a stage under its `SPECS/`.
-- **A copied file is not edited here.** While Cloud-Sandbox holds its
-  original, it changes there, by the original or by a patch, and
-  Cloud-Sandbox's `just export sandbox-provisioning` writes it here. Only what Cloud-Sandbox's
-  `exportit/sandbox-provisioning.map` calls `new` is this repository's own to change.
+- **A copied file is not edited here while Cloud-Sandbox holds its
+  original**, that is, while Cloud-Sandbox's `exportit/sandbox-provisioning.map` does not
+  say `owned`: it changes there, by the original or by a patch, and
+  Cloud-Sandbox's `just export sandbox-provisioning` writes it here. Once the map says
+  `owned`, the originals are gone and the copied files are this repository's;
+  later changes from the original arrive by Cloud-Sandbox's `just export-sync`.
 - **Verify with the `Justfile`:** `just test` after every change,
   `just full-test` before a spec is called done or a release is cut.
 - **Commit locally.** Merge, push and release only on the operator's word.
