@@ -41,7 +41,7 @@ not happen cannot be trusted.
 **Why:** the playbooks are to build any sandbox, and a repository holding one
 site's people is not one to share.
 
-<!-- csis-shared: begin, version 2.0.1. Written by Cloud-Sandbox's `just constitution` from exportit/tools/constitution/shared.md; do not edit here. -->
+<!-- csis-shared: begin, version 2.1.0. Written by Cloud-Sandbox's `just constitution` from exportit/tools/constitution/shared.md; do not edit here. -->
 
 ### S1. Acceptance Tests Run Through the Justfile
 
@@ -150,8 +150,32 @@ work.
 - **After a finish here,** Cloud-Sandbox records this repository's new
   `develop` commit (`git add exportit/<unit>` there), and is pushed after this
   repository, never before.
-- **A spec is done** when its tasks are ticked, `just full-test` passes, and
-  its `spec.md` says so in its Status line.
+- **A spec is done** when all of the following hold, each shown by a
+  command or a record, not by a reading:
+  1. Every task in its `tasks.md` is checked, and each has a record of what
+     was done and the evidence (a commit, a run, a count).
+  2. `/speckit-converge` was run after the last implementation and appended
+     nothing, or every task it appended is itself done.
+  3. The acceptance it ends in (principle S1) was run at the end and passed:
+     its quickstart walked step by step, each result recorded, and
+     `just full-test` passing.
+  4. Its branch is squash-merged into `develop`, the branch kept, and pushed;
+     and Cloud-Sandbox records this repository's new `develop` commit.
+  5. When its plan names a release, that release is cut and tagged, every run
+     it started passed, and Cloud-Sandbox's `units.toml` (and anything else
+     that pins this repository) has taken it with Cloud-Sandbox's `just test`
+     green. When the plan names none, a release that carries the spec is still
+     preferred where one is possible; if none is cut, the records say why.
+  6. Its `spec.md` Status line, and its row in this repository's index of
+     specs where it has one, say **complete**, with the date.
+
+  This holds for every spec, those written before it included. Until all six
+  hold, a spec is **in progress**; one that is merged but not yet done is
+  **merged**. A step that does not apply is named as not applying in its
+  tasks' records rather than left out. A spec that spans units is held to
+  Cloud-Sandbox's own definition of done, which has the same six conditions.
+
+  **Why:** a merge proves the code moved, not that the operator was served.
 
 ## Governance
 
@@ -187,4 +211,4 @@ production profile; the collection `infrastructurebuilder.csis_spack` pinned by
 tag in `requirements.yml`; RHEL 10 on AWS as the target; the container test
 needs Docker and takes about ten minutes.
 
-**Version**: 2.0.1 | **Ratified**: 2026-11-18 | **Last Amended**: 2026-11-19
+**Version**: 2.1.0 | **Ratified**: 2026-11-18 | **Last Amended**: 2026-11-21
