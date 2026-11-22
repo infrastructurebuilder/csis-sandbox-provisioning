@@ -9,16 +9,26 @@ describes the playbooks that replace it, and notes where they differ.
 ## What happens at first boot
 
 When Terraform creates a head node, the node runs its first-boot script
-once. With `sandbox-terraform`'s `init_template.ansible.tpl` (the original
-uses `init_template.tpl`, which runs `setup-instance.sh`), that script:
+once. That script is `csis-sandbox-terraform`'s `init_template.ansible.tpl`,
+which its `main.tf` renders since its spec 006 (2026-11-22); the original
+used `init_template.tpl`, which runs `setup-instance.sh`. The script:
 
 1. mounts the EFS volume at `/mnt/efs/fs1` and links `/save` to it;
-2. installs Ansible and runs `ansible-pull`, which fetches this project at
-   the version Terraform names and applies [site.yml](site.yml) to the
-   node itself;
-3. if that succeeded, applies [node-image.yml](node-image.yml), which
+2. clones cloudflow from its own repository, at the tag Terraform names,
+   into `/save/ec2-user/cloudflow`, and links the old checkout's path,
+   `/save/ec2-user/Cloud-Sandbox/cloudflow`, to it;
+3. installs Ansible and runs `ansible-pull`, which fetches this project at
+   the tag Terraform names and applies [site.yml](site.yml) to the node
+   itself;
+4. installs cloudflow for `ec2-user`, editable and without dependencies:
+   `site.yml`'s `python_user_env` role has installed them;
+5. if all that succeeded, applies [node-image.yml](node-image.yml), which
    turns the node's root volume into the machine image the compute nodes
    boot from.
+
+Both repositories are public and are cloned with no credential. Any step
+that fails stops the script, with a line saying which in `~/setup.log`,
+before an image is made.
 
 `site.yml` installs, among other things:
 
