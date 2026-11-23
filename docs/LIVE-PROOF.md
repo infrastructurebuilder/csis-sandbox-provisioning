@@ -1,366 +1,386 @@
 # Proving the playbooks on a real head node
 
-*Written 2026-11-12. **Not run.** Every box below is a careful reading
-of the scripts and of the tools involved, but none has been executed.
-Treat the first run as a test of this page as well as of the
-playbooks, and stop at any result the page does not predict.*
+*Version 2, written 2026-11-23 for Cloud-Sandbox's spec 001. **Not yet run.**
+Treat the first run as a test of this page as well as of the playbooks, and
+stop at any result the page does not predict.*
 
-The container test proves seven roles on AlmaLinux 10. It cannot prove
-the two kernel drivers, the Intel compilers, the Spack build, the
-tuning profile or the node image, and it does not run on RHEL or on
-AWS. This procedure does: it builds a head node with the playbooks in
-place of `setup-instance.sh`, applies them a second time, and makes a
-node image.
+The container test proves the playbooks on AlmaLinux 10. It cannot prove the
+two kernel drivers, the Intel compilers, the Spack build, the tuning profile,
+the node image or the first-boot script, and it does not run on RHEL or on
+AWS. This procedure does: it builds a head node with `csis-sandbox-terraform`
+in the `noaa` account's existing IOOS VPC, lets the node's first boot (spec
+006) apply the playbooks, applies them again and in check mode by hand,
+makes the node image, and removes everything it made.
 
-## What it costs
+## What it costs, and what it may touch
 
-- One head node of the instance type in your settings file, for the
-  length of the Spack build. The build compiles everything; allow
-  several hours.
-- One EFS volume, one snapshot and one machine image, until you remove
-  them in stage E.
-- Stage D doubles the first item.
-
-Nothing here touches an existing sandbox, provided the gate in step A3
-holds.
+- One head node of 32 processors (`c6i.8xlarge`, about $1.36 an hour) for the
+  length of the Spack build: several hours. One EFS volume, one machine image
+  and its snapshot, until stage E removes them.
+- **Nothing that exists is changed.** Every resource the proof makes is new and
+  carries the prefix `CSIS-Live-Proof` (`csis_live_proof` where a name allows
+  no capitals). The plan in box A4 must show only additions; the VPC and its
+  subnets are described before and after, and must be the same (box E6).
+- **Every box that creates, changes or removes something on AWS** says so with
+  **Changes AWS:** above it, and is run only on the operator's word.
 
 ## Where each box runs
 
-Two places, named in every step: **your local machine**, in a terminal
-at the root of the Cloud-Sandbox repository, and **the head node**, in
-an `ssh` session as `ec2-user`. Every box sets the variables it uses,
-so a box can be pasted on its own.
+Two places, named in every step's heading: **your local machine**, in a
+terminal anywhere, with the AWS CLI and the Session Manager plugin; and **the
+head node**, in a Session Manager session (box A5). Every box sets the
+variables it uses, so a box can be pasted on its own.
 
-`$HOME/sandbox-live-proof` is this page's choice of working directory
-on your local machine. Any empty place outside the repository will do;
-change it in every box if you change it in one.
+`$HOME/csis-live-proof` is this page's working directory on your local
+machine. The settings file there names the account's network: it is never
+committed anywhere.
 
-## Stage A: a head node with nothing installed
+## Stage A: the head node
 
-### A1. Your AWS session (local machine)
+### A1. Your AWS session and the plugin (your local machine)
 
 ```sh
-# A1 -- box 1 of 1 -- v1
-aws sts get-caller-identity
+# A1 -- box 1 of 1 -- v2
+export AWS_PROFILE=noaa AWS_REGION=us-east-2
+aws sts get-caller-identity --query Arn --output text >/dev/null && echo "session: valid"
+session-manager-plugin --version
 ```
 
-It must print your account and role. If it prints an error, STOP:
-refresh the session before going on. Everything after this needs it,
-and stage B runs for hours.
+It must print `session: valid` and a version. If the session is not valid,
+**stop** and refresh it; the proof does not start without one.
 
-### A2. A working copy of the Terraform (local machine)
+### A2. A working copy, and the proof's key pair (your local machine)
 
-The copy is edited; the repository's `terraform/` is not.
+The working copy is `csis-sandbox-terraform` as merged, with `proof/`'s files
+beside its `main.tf`. Set `CSIS` to your Cloud-Sandbox checkout.
 
 ```sh
-# A2 -- box 1 of 2 -- v1
-PROOF="$HOME/sandbox-live-proof"
-cp -R terraform "$PROOF"
-sed -i.orig '/setup-instance.sh/d' "$PROOF/init_template.tpl"
-grep -c 'setup-instance.sh' "$PROOF/init_template.tpl"
+# A2 -- box 1 of 2 -- v2
+CSIS=$HOME/Cloud-Sandbox
+PROOF=$HOME/csis-live-proof
+mkdir "$PROOF" && cd "$PROOF"
+git -C "$CSIS/exportit/sandbox-terraform" archive develop | tar -x
+cp proof/backend_override.tf proof/proof_override.tf proof/proof.tf proof/ssm-agent.sh .
+cp proof/proof.tfvars.example proof.tfvars
+ls proof_override.tf proof.tf backend_override.tf proof.tfvars
 ```
 
-It must print `0`: the first-boot script no longer runs the old
-set-up. If it prints anything else, STOP.
+It must list the four files. A key pair of the proof's own, kept on your local
+machine (the module requires an RSA key):
 
 ```sh
-# A2 -- box 2 of 2 -- v1
-PROOF="$HOME/sandbox-live-proof"
-rm -rf "$PROOF/.terraform" "$PROOF"/terraform.tfstate*
-ls -a "$PROOF" | grep -c -x '.terraform'
+# A2 -- box 2 of 2 -- v2
+ssh-keygen -t rsa -b 4096 -N '' -C csis-live-proof -f "$HOME/.ssh/csis-live-proof"
+cat "$HOME/.ssh/csis-live-proof.pub"
 ```
 
-It must print `0`. A `.terraform` directory copied from the repository
-would point this copy at the state of a sandbox you already run.
+Put the printed line in `proof.tfvars` as `public_key`.
 
-### A3. A workspace of its own (local machine)
+### A3. The network, and the settings (your local machine)
 
 ```sh
-# A3 -- box 1 of 3 -- v1
-PROOF="$HOME/sandbox-live-proof"
-cd "$PROOF"
-terraform init -backend-config=config.s3.tfbackend
-terraform workspace new live-proof
-terraform workspace show
+# A3 -- box 1 of 3 -- v2
+export AWS_PROFILE=noaa AWS_REGION=us-east-2
+VPC=$(aws ec2 describe-vpcs --filters 'Name=tag:Name,Values=IOOS Cloud Sandbox VPC' --query 'Vpcs[0].VpcId' --output text)
+echo "VPC: $VPC"
+aws ec2 describe-route-tables --filters "Name=vpc-id,Values=$VPC" \
+  --query 'RouteTables[].{subnets:Associations[].SubnetId,nat:Routes[?NatGatewayId].NatGatewayId}' --output json
+aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC" \
+  --query 'Subnets[].[SubnetId,AvailabilityZone,Tags[?Key==`Name`]|[0].Value]' --output table
 ```
 
-It must print `live-proof`. If it prints anything else, STOP: a plan
-made now would be a plan against another sandbox.
+The private subnets are those whose route table has a NAT gateway.
 
-**YOUR DECISION:** the settings. Copy the settings file you deploy
-with to `$HOME/sandbox-live-proof/proof.tfvars` and give `nameprefix`
-and `name_tag` values that no other sandbox uses, for example
-`live_proof` and `Live-Proof`. If you change nothing, the IAM role and
-the placement group collide with your existing sandbox's and the apply
-fails.
+**YOUR DECISION:** which private subnet. **Default:** the private subnet in
+`us-east-2b`, or the first private subnet if none is there.
+
+Fill in `proof.tfvars`: `vpc_id`, `subnet_id`, `availability_zone` (the
+subnet's), `public_key` (box A2), `provisioning_version` (the tag of
+`csis-sandbox-provisioning` merged for spec 001) and `cloudflow_version`
+(cloudflow's newest tag). Leave `compare_with_script = false` unless stage D
+is wanted.
+
+Save the network as it is now, for box E6:
 
 ```sh
-# A3 -- box 2 of 3 -- v1
-PROOF="$HOME/sandbox-live-proof"
-grep -E '^(nameprefix|name_tag)' "$PROOF/proof.tfvars"
+# A3 -- box 2 of 3 -- v2
+export AWS_PROFILE=noaa AWS_REGION=us-east-2
+PROOF=$HOME/csis-live-proof
+VPC=$(grep '^vpc_id' "$PROOF/proof.tfvars" | cut -d'"' -f2)
+aws ec2 describe-vpcs --vpc-ids "$VPC" --output json > "$PROOF/vpc-before.json"
+aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC" --output json > "$PROOF/subnets-before.json"
+aws ec2 describe-route-tables --filters "Name=vpc-id,Values=$VPC" --output json > "$PROOF/routes-before.json"
+ls -l "$PROOF"/*-before.json
 ```
 
-It must show the two values you chose.
+It must list three files, none empty.
 
 ```sh
-# A3 -- box 3 of 3 -- v1
-PROOF="$HOME/sandbox-live-proof"
-cd "$PROOF"
-terraform plan -var-file=proof.tfvars -out=proof.plan
+# A3 -- box 3 of 3 -- v2
+grep -n 'FILL IN' "$HOME/csis-live-proof/proof.tfvars" || echo "settings: complete"
 ```
 
-The last lines must read `Plan: N to add, 0 to change, 0 to destroy.`
-If either of the last two numbers is not 0, STOP. Do not apply.
+It must print `settings: complete`.
 
-### A4. Create it (local machine)
+### A4. A workspace of its own, and the plan (your local machine)
 
-A few minutes; the exact time is not known.
+About two minutes: OpenTofu fetches its providers.
 
 ```sh
-# A4 -- box 1 of 1 -- v1
-PROOF="$HOME/sandbox-live-proof"
-cd "$PROOF"
-terraform apply proof.plan
+# A4 -- box 1 of 1 -- v2
+export AWS_PROFILE=noaa AWS_REGION=us-east-2
+cd "$HOME/csis-live-proof"
+"$HOME/Cloud-Sandbox/exportit/sandbox-terraform/.tofu/1.13.9/tofu" init -input=false
+TOFU="$HOME/Cloud-Sandbox/exportit/sandbox-terraform/.tofu/1.13.9/tofu"
+"$TOFU" workspace new live-proof
+"$TOFU" plan -var-file=proof.tfvars -out=proof.plan | tail -3
 ```
 
-It must end with `Apply complete!` and print a `login_command`. Keep
-that line: the address in it is the head node.
+It must end with `Plan: N to add, 0 to change, 0 to destroy.` Read the list:
+every resource is new and named with the prefix. **If anything is to change or
+be destroyed, stop**: nothing is applied.
 
-### A5. Confirm that the node is bare (head node)
+### A5. Create it (your local machine)
 
-Log in with the `login_command`. Then:
+**Changes AWS:** this creates the head node, its EFS volume, groups, role and
+key pair. About five minutes; the first boot then runs for hours on its own.
 
 ```sh
-# A5 -- box 1 of 1 -- v1
-cloud-init status --wait
-sudo tail -2 /root/setup.log
-ls /save /mnt/efs/fs1
-ls /save/environments
+# A5 -- box 1 of 2 -- v2
+export AWS_PROFILE=noaa AWS_REGION=us-east-2
+cd "$HOME/csis-live-proof"
+TOFU="$HOME/Cloud-Sandbox/exportit/sandbox-terraform/.tofu/1.13.9/tofu"
+test "$("$TOFU" workspace show)" = live-proof && "$TOFU" apply proof.plan
+"$TOFU" output -raw instance_id
 ```
 
-`cloud-init` must report `status: done`. The log ends with
-`Installation completed!` and a date (the message is the old
-script's; nothing was installed). `/save` and `/mnt/efs/fs1` list a
-directory for `ec2-user`. The last line must say
-`No such file or directory`: if `/save/environments` exists, the old
-set-up ran, and this node proves nothing. STOP.
-
-## Stage B: apply the playbooks
-
-### B1. Copy the playbooks to the node (local machine)
-
-**YOUR DECISION:** `NODE` and `KEY` are the address and the key file
-from your `login_command`. There is no default.
+It must end with `Apply complete!` and print the node's id. Within a few
+minutes the node answers Session Manager:
 
 ```sh
-# B1 -- box 1 of 1 -- v1
-NODE=ec2-user@PUT-THE-ADDRESS-HERE
-KEY=PUT-THE-PATH-TO-YOUR-KEY-HERE
-tar -C exportit/sandbox-provisioning --format ustar \
-    --exclude .venv --exclude .collections --exclude .pytest_cache --exclude .ruff_cache \
-    -cf - . | ssh -i "$KEY" "$NODE" 'mkdir -p sandbox-provisioning && tar -C sandbox-provisioning -xf -'
-ssh -i "$KEY" "$NODE" 'ls sandbox-provisioning/site.yml sandbox-provisioning/roles | head -3'
+# A5 -- box 2 of 2 -- v2
+export AWS_PROFILE=noaa AWS_REGION=us-east-2
+ID=$("$HOME/Cloud-Sandbox/exportit/sandbox-terraform/.tofu/1.13.9/tofu" -chdir="$HOME/csis-live-proof" output -raw instance_id)
+aws ssm describe-instance-information --filters "Key=InstanceIds,Values=$ID" --query 'InstanceInformationList[0].PingStatus' --output text
 ```
 
-It must list `sandbox-provisioning/site.yml` and role names.
+It must print `Online` (repeat after a minute if it prints `None`). Every box
+on **the head node** below runs in `aws ssm start-session --target $ID`.
 
-### B2. Start the build (head node)
+## Stage B: the build
+
+### B1. Follow the first boot (the head node)
+
+The first boot runs as root in cloud-init, writing `/root/setup.log`. This
+box can be run as often as wanted, from any session; closing it stops nothing.
 
 ```sh
-# B2 -- box 1 of 2 -- v1
-sudo dnf -y install ansible-core
-sudo cp -R ~/sandbox-provisioning /opt/sandbox-provisioning
+# B1 -- box 1 of 1 -- v2
+sudo tail -n 5 /root/setup.log
+sudo cloud-init status
+```
+
+Wait until `cloud-init status` says `done` (or `error`). Several hours.
+
+### B2. The first boot's result (the head node)
+
+```sh
+# B2 -- box 1 of 1 -- v2
+sudo grep -A3 'PLAY RECAP' /root/setup.log | tail -4
+sudo grep -E 'FAILED|left for LIVE-PROOF' /root/setup.log
+```
+
+The recap must show `failed=0`, and the last line must be the one saying the
+node image is left for stage C. A `FAILED` line names the step that stopped.
+
+### B3. Apply it again (the head node)
+
+About an hour; it runs on even if the session closes.
+
+```sh
+# B3 -- box 1 of 1 -- v2
+cd /opt/sandbox-provisioning && export ANSIBLE_CONFIG=/opt/sandbox-provisioning/ansible.cfg
+sudo touch /root/second-apply.started
+sudo -E nohup ansible-playbook -i inventories/local/hosts.yml site.yml \
+  --extra-vars "spack_site_mirror=true sandbox_user=ec2-user project_tag=CSIS-Live-Proof" > /tmp/site-second.log 2>&1 &
+sleep 5; tail -n 2 /tmp/site-second.log
+```
+
+When it is done (`grep -A3 'PLAY RECAP' /tmp/site-second.log`), every
+`changed:` line in `/tmp/site-second.log` is a finding. A change caused by an
+upstream release since the first apply is repeated once before it is called
+one.
+
+### B4. Check mode (the head node)
+
+```sh
+# B4 -- box 1 of 1 -- v2
+cd /opt/sandbox-provisioning && export ANSIBLE_CONFIG=/opt/sandbox-provisioning/ansible.cfg
+sudo -E ansible-playbook -i inventories/local/hosts.yml site.yml --check \
+  --extra-vars "spack_site_mirror=true sandbox_user=ec2-user project_tag=CSIS-Live-Proof" > /tmp/site-check.log 2>&1
+grep -A3 'PLAY RECAP' /tmp/site-check.log | tail -2
+```
+
+Every task that would change is a finding.
+
+### B5. Spack's configuration (the head node)
+
+```sh
+# B5 -- box 1 of 1 -- v2
 cd /opt/sandbox-provisioning
-ansible-playbook --syntax-check site.yml
+sudo -u ec2-user python3 tests/container/compare-spack-config.py \
+  --spack /save/environments/spack.v1.2.0/bin/spack --expected tests/container/expected-spack-config.json
 ```
 
-It must print `playbook: site.yml` and no error.
+Each difference it lists is a finding, not a failure.
 
-Several hours: the Spack step compiles ESMF, PETSc and everything they
-need. The box returns at once; the build goes on if you log out.
+### B6. Module files (the head node)
 
 ```sh
-# B2 -- box 2 of 2 -- v1
-cd /opt/sandbox-provisioning
-sudo nohup ansible-playbook site.yml > ~/site-first.log 2>&1 &
-sleep 20
-tail -5 ~/site-first.log
+# B6 -- box 1 of 1 -- v2
+sudo find /save/environments -path '*modules*' -type f -newer /root/second-apply.started | head
 ```
 
-It must show task names going by. If it shows an error, STOP.
+It must print nothing: the second apply rewrote no module file
+(`refresh_modules: when_needed`).
 
-To watch: `tail -f ~/site-first.log`. Ctrl-C stops the watching, not
-the build. During the long step, the build's own output is in
-`/save/environments/rhel10-x86_64_v3/log.install`.
-
-### B3. Read the result (head node)
-
-When the log has stopped growing:
+### B7. JupyterHub (the head node)
 
 ```sh
-# B3 -- box 1 of 2 -- v1
-grep -E '^localhost +: ' ~/site-first.log
+# B7 -- box 1 of 1 -- v2
+cd /opt/sandbox-provisioning && export ANSIBLE_CONFIG=/opt/sandbox-provisioning/ansible.cfg
+sudo -E ansible-playbook -i inventories/local/hosts.yml jupyterhub.yml > /tmp/jupyterhub.log 2>&1
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8000/hub/login
 ```
 
-It must print one line with `unreachable=0 failed=0`. If there is no
-such line the build is still running. If `failed` is not 0, STOP: the
-task that failed is the last `fatal:` line in the log, and the node is
-worth keeping as it is for a look.
-
-Also look for the kernel warning, which is not an error:
-
-```sh
-# B3 -- box 2 of 2 -- v1
-grep -A3 'WARNING: the running kernel' ~/site-first.log
-```
-
-If it prints, the EFA and Lustre drivers were built for a kernel that
-is not the one running, exactly as the script would have built them.
-
-### B4. Apply it again (head node)
-
-Time unknown; minutes are expected, since nothing should need
-building.
-
-```sh
-# B4 -- box 1 of 1 -- v1
-cd /opt/sandbox-provisioning
-sudo ansible-playbook site.yml > ~/site-second.log 2>&1
-grep -E '^localhost +: ' ~/site-second.log
-```
-
-It must show `failed=0`. The aim is `changed=0`. Any task that changed
-something on the second run is a finding and not a failure; list them
-with `grep -B3 '^changed:' ~/site-second.log` and keep the output.
+It must print `200`.
 
 ## Stage C: the node image
 
-### C1. Make it (head node)
+### C1. Make it (your local machine, then the head node)
+
+The image's name is the one the module chose for this deployment:
 
 ```sh
-# C1 -- box 1 of 2 -- v1
-cd /opt/sandbox-provisioning
-sudo ansible-galaxy collection install -r requirements.yml
-sudo ansible-galaxy collection list amazon.aws
+# C1 -- box 1 of 2 -- v2
+"$HOME/Cloud-Sandbox/exportit/sandbox-terraform/.tofu/1.13.9/tofu" -chdir="$HOME/csis-live-proof" output -raw ami_name
 ```
 
-It must list `amazon.aws` with a version that begins with 9.
+Put the printed name in the next box, on **the head node**.
 
-Tens of minutes: the play waits for the snapshot, for up to fifty
+**Changes AWS:** this makes a machine image and its snapshot. About twenty
 minutes.
 
 ```sh
-# C1 -- box 2 of 2 -- v1
-cd /opt/sandbox-provisioning
-sudo ansible-playbook node-image.yml -e ami_name=live-proof-$(date -u +%Y%m%d-%H%M) > ~/node-image.log 2>&1
-grep -E 'AMI Image ID is|^localhost +: ' ~/node-image.log
+# C1 -- box 2 of 2 -- v2
+cd /opt/sandbox-provisioning && export ANSIBLE_CONFIG=/opt/sandbox-provisioning/ansible.cfg
+sudo -E ansible-playbook -i inventories/local/hosts.yml node-image.yml \
+  --extra-vars "sandbox_user=ec2-user project_tag=CSIS-Live-Proof ami_name=PUT-THE-NAME-HERE" > /tmp/node-image.log 2>&1
+grep -A3 'PLAY RECAP' /tmp/node-image.log | tail -2
 ```
 
-It must print an image id that begins with `ami-`, and `failed=0`.
+The recap must show `failed=0`.
 
-### C2. See it from outside (local machine)
+### C2. See it from outside (your local machine)
 
 ```sh
-# C2 -- box 1 of 1 -- v1
-aws ec2 describe-images --owners self --filters 'Name=name,Values=live-proof-*' \
-    --query 'Images[].[ImageId,Name,State]' --output text
+# C2 -- box 1 of 1 -- v2
+export AWS_PROFILE=noaa AWS_REGION=us-east-2
+aws ec2 describe-images --owners self --filters 'Name=name,Values=CSIS-Live-Proof-*' \
+  --query 'Images[].[Name,State,BlockDeviceMappings[0].Ebs.SnapshotId]' --output table
 ```
 
-It must print one line that ends in `available`. Add `--region` if
-your default region is not the node's.
+The image must be `available`, with its snapshot.
 
-Not covered: starting a compute node from this image and running a
-model on it. That is the image's real test, and it needs a cluster
-description and cloudflow.
+## Stage D: compare with a node built the original way (only with the flag)
 
-## Stage D, optional: compare with a node the script builds
-
-**YOUR DECISION:** skip this (the default), or build a second head
-node the old way and compare the two. It is the only direct evidence
-that the playbooks leave what the script leaves, and it costs a second
-build of several hours.
-
-To do it, repeat stage A in a third workspace with a third
-`nameprefix`, leaving out the `sed` line of A2 so that the old set-up
-runs. Then, on each node:
-
-```sh
-# D -- box 1 of 2 -- v1
-rpm -qa | sort > ~/facts-rpm.txt
-python3 -m pip list --format=freeze | sort > ~/facts-pip.txt
-/save/environments/spack.v1.2.0/bin/spack -e /save/environments/rhel10-x86_64_v3 find > ~/facts-spack.txt
-find /save/environments/modulefiles -type f | sort > ~/facts-modules.txt
-tuned-adm active > ~/facts-tuned.txt
-wc -l ~/facts-*.txt
-```
-
-Fetch the five files from both nodes into two directories on your
-local machine and compare:
-
-```sh
-# D -- box 2 of 2 -- v1
-diff -r facts-ansible facts-script
-```
-
-Expected differences: none in the Spack and module lists; the
-`ansible-core` package and what it requires in the package list.
-Anything else is a finding.
+**Skipped unless `compare_with_script = true`** in `proof.tfvars`, which is
+off by default. With it, box A5 also made a second node, `CSIS-Live-Proof-script`,
+booted by the original's first boot at the units' baseline (`ca0604a`), which
+also makes its own image. Compare the two nodes' installed packages
+(`rpm -qa | sort`), users (`getent passwd`), services
+(`systemctl list-unit-files --state=enabled`), Spack's configuration (box B5
+on each) and module files; each difference is a finding. With the flag off,
+record the comparison as deferred.
 
 ## Stage E: remove everything
 
-**YOUR DECISION:** remove now (the default), or keep the node for a
-look. While it stands, the node, the EFS volume, the snapshot and the
-image are all billed.
+### E1. The workspace (your local machine)
 
 ```sh
-# E -- box 1 of 5 -- v1
-PROOF="$HOME/sandbox-live-proof"
-cd "$PROOF"
-terraform workspace show
+# E1 -- box 1 of 1 -- v2
+cd "$HOME/csis-live-proof" && "$HOME/Cloud-Sandbox/exportit/sandbox-terraform/.tofu/1.13.9/tofu" workspace show
 ```
 
-It must print `live-proof`. If it prints anything else, STOP: the next
-box would destroy another sandbox.
+It must print `live-proof`. If it prints anything else, **stop**: the next box
+would destroy another sandbox.
+
+### E2. Destroy what OpenTofu made (your local machine)
+
+**Changes AWS:** this removes the node (and the `-script` node), the EFS
+volume, the groups, the role and the key pair. Read the list before you
+answer. About five minutes.
 
 ```sh
-# E -- box 2 of 5 -- v1
-PROOF="$HOME/sandbox-live-proof"
-cd "$PROOF"
-terraform destroy -var-file=proof.tfvars
+# E2 -- box 1 of 1 -- v2
+export AWS_PROFILE=noaa AWS_REGION=us-east-2
+cd "$HOME/csis-live-proof"
+"$HOME/Cloud-Sandbox/exportit/sandbox-terraform/.tofu/1.13.9/tofu" destroy -var-file=proof.tfvars
 ```
 
-Terraform lists what it will destroy and asks. Read the list before
-you answer. It must end with `Destroy complete!`.
+It must end with `Destroy complete!`
 
-The image and its snapshot were not made by Terraform and are still
-there.
+### E3. The images and snapshots (your local machine)
 
 ```sh
-# E -- box 3 of 5 -- v1
-aws ec2 describe-images --owners self --filters 'Name=name,Values=live-proof-*' \
-    --query 'Images[].[ImageId,BlockDeviceMappings[0].Ebs.SnapshotId]' --output text
+# E3 -- box 1 of 2 -- v2
+export AWS_PROFILE=noaa AWS_REGION=us-east-2
+aws ec2 describe-images --owners self --filters 'Name=name,Values=CSIS-Live-Proof-*' \
+  --query 'Images[].[ImageId,BlockDeviceMappings[0].Ebs.SnapshotId]' --output text
 ```
 
-It prints the image id and the snapshot id. Put them in the next two
-boxes.
+It prints each image's id and its snapshot's. For each line:
+
+**Changes AWS:** this removes one image and its snapshot.
 
 ```sh
-# E -- box 4 of 5 -- v1
+# E3 -- box 2 of 2 -- v2
+export AWS_PROFILE=noaa AWS_REGION=us-east-2
 aws ec2 deregister-image --image-id PUT-THE-IMAGE-ID-HERE
+aws ec2 delete-snapshot --snapshot-id PUT-THE-SNAPSHOT-ID-HERE
 ```
+
+### E4. Nothing left with the prefix (your local machine)
 
 ```sh
-# E -- box 5 of 5 -- v1
-aws ec2 delete-snapshot --snapshot-id PUT-THE-SNAPSHOT-ID-HERE
-aws ec2 describe-snapshots --owner-ids self --filters 'Name=tag:Name,Values=live-proof-*' \
-    --query 'Snapshots[].SnapshotId' --output text
+# E4 -- box 1 of 1 -- v2
+export AWS_PROFILE=noaa AWS_REGION=us-east-2
+aws resourcegroupstaggingapi get-resources --tag-filters Key=Project,Values=CSIS-Live-Proof --query 'ResourceTagMappingList[].ResourceARN' --output text
+aws ec2 describe-images --owners self --filters 'Name=name,Values=CSIS-Live-Proof-*' --query 'Images[].ImageId' --output text
+aws ec2 describe-snapshots --owner-ids self --filters 'Name=tag:Project,Values=CSIS-Live-Proof' --query 'Snapshots[].SnapshotId' --output text
 ```
 
-The last command must print nothing.
+All three must print nothing.
+
+### E5. The network as it was (your local machine)
+
+```sh
+# E5 -- box 1 of 1 -- v2
+export AWS_PROFILE=noaa AWS_REGION=us-east-2
+PROOF=$HOME/csis-live-proof
+VPC=$(grep '^vpc_id' "$PROOF/proof.tfvars" | cut -d'"' -f2)
+aws ec2 describe-vpcs --vpc-ids "$VPC" --output json | diff - "$PROOF/vpc-before.json" && echo "VPC: as it was"
+aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC" --output json | diff - "$PROOF/subnets-before.json" && echo "subnets: as they were"
+aws ec2 describe-route-tables --filters "Name=vpc-id,Values=$VPC" --output json | diff - "$PROOF/routes-before.json" && echo "routes: as they were"
+```
+
+It must print all three `as it was` / `as they were` lines. A difference that
+is not the proof's (another sandbox's subnet counts changing, say) is noted,
+not a failure; one that is the proof's is.
 
 ## What to bring back
 
-`~/site-first.log`, `~/site-second.log` and `~/node-image.log` from the
-head node, and the output of stage D if you ran it. With those, the
-rows marked "not proved" in [../../MAP.md](../../MAP.md) can be
-settled one way or the other.
+The logs stay on your local machine and the node: they hold the node's
+addresses and the account's identifiers. Their summary, every finding, and
+each row of the "Not proved" table (Cloud-Sandbox's `exportit/MAP.md`), proved
+or not, go into spec 001's outcome.
