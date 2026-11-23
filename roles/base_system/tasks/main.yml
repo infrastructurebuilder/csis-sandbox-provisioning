@@ -28,12 +28,26 @@
   changed_when: false
 
 # Replaces funcs-setup-instance.sh L34
+# The script edits /etc/dnf/pluginconf.d/subscription-manager.conf. RHEL 10 has
+# no such directory (its dnf plugins are configured in /etc/dnf/plugins/, the
+# file the script's L36 names in a comment), so there the script's sed fails
+# unnoticed and nothing is edited. The role edits the file RHEL 10 has, and only
+# if it exists (spec 001's live proof, 2026-11-23).
+- name: Look for subscription-manager's dnf plugin file
+  ansible.builtin.stat:
+    path: "{{ base_system_subscription_manager_plugin_conf }}"
+  register: base_system_subscription_manager_plugin_file
+  when: base_system_subscription_manager | bool
+
+# Replaces funcs-setup-instance.sh L34
 - name: Silence the subscription-manager dnf plugin
   ansible.builtin.replace:
-    path: /etc/dnf/pluginconf.d/subscription-manager.conf
+    path: "{{ base_system_subscription_manager_plugin_conf }}"
     regexp: 'enabled[ ]*=[ ]*1'
     replace: 'enabled=0'
-  when: base_system_subscription_manager | bool
+  when:
+    - base_system_subscription_manager | bool
+    - base_system_subscription_manager_plugin_file.stat.exists
 
 # Replaces funcs-setup-instance.sh L40
 # The update may install a new kernel. The script does not reboot, and neither
