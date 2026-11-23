@@ -9,6 +9,10 @@ base_system_crb_repo: codeready-builder-for-rhel-10-rhui-rpms
 # The file the script edits so that packages install their documentation.
 base_system_dnf_conf: /etc/dnf.conf
 
+# The configuration of subscription-manager's dnf plugin on RHEL 10. The script
+# names /etc/dnf/pluginconf.d/, which RHEL 10 does not have (tasks/main.yml).
+base_system_subscription_manager_plugin_conf: /etc/dnf/plugins/subscription-manager.conf
+
 base_system_epel_release_url: https://dl.fedoraproject.org/pub/epel/epel-release-latest-10.noarch.rpm
 base_system_ssm_agent_url: https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm
 
