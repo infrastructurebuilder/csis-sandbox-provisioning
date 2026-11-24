@@ -1,0 +1,74 @@
+---
+# Push this head node's Spack environment to the build cache (Cloud-Sandbox's
+# spec 002), so that a later build installs from it instead of compiling.
+#
+#   ansible-playbook -i inventories/local/hosts.yml push-build-cache.yml --check
+#   ansible-playbook -i inventories/local/hosts.yml push-build-cache.yml
+#
+# Run by hand on a built head node, after site.yml, and never by it. Check mode
+# first: it lists what the cache lacks and pushes nothing. docs/BUILD-CACHE.md
+# says when to push, and how the signing key gets onto the node.
+#
+# It replaces csis-sandbox-ops' bin/spack-update-mirror.sh, which pushes a
+# list of packages one by one with "spack buildcache push"; that script is not
+# in legacy/, being the other unit's. What differs from it, on purpose:
+# - The environment's packages are pushed, all of them that are installed,
+#   in one call; the script pushes a list it names.
+# - Only what the cache lacks is pushed (force: false), so a second run, or a
+#   run after an interrupted one, pushes only what is missing.
+# - The key is not imported here. The script expects the private key to have
+#   been imported by hand; so does this play, and it stops, naming the key,
+#   when it is not in Spack's keyring.
+# - The cache is spack_mirror: since spec 002 a bucket of the sandbox's own,
+#   holding RHEL 10's packages. The RHEL 8 cache in ioos-cloud-sandbox is never
+#   written to.
+
+- name: Push the Spack environment to the build cache
+  hosts: sandbox_head
+  become: true
+  become_user: "{{ sandbox_user }}"
+  gather_facts: false
+
+  # spack_environment_dir is the spack_environment role's default; read here
+  # as the tests read it.
+  vars_files:
+    - roles/spack_environment/defaults/main.yml
+
+  vars:
+    # Push without signing: only for a cache in a directory, in the container
+    # test, which has no signing key.
+    push_build_cache_unsigned: false
+
+  tasks:
+    # New: the script assumes the private key was imported (its L24); this
+    # checks it, so that a push is not refused half-way.
+    - name: List the signing keys in Spack's keyring
+      ansible.builtin.command:
+        cmd: "{{ spack_exe }} gpg list --signing"
+      register: push_build_cache_keys
+      changed_when: false
+      check_mode: false
+      when: not (push_build_cache_unsigned | bool)
+
+    # New: the check above, as a refusal that names the key.
+    - name: Stop unless the key to sign with is there
+      ansible.builtin.assert:
+        that: spack_key_fingerprint in (push_build_cache_keys.stdout | replace(' ', '') | upper)
+        fail_msg: >-
+          The signing key {{ spack_key_fingerprint }} is not in Spack's keyring
+          for {{ sandbox_user }}. Put its private half on the node and run
+          "spack gpg trust <file>" (docs/BUILD-CACHE.md), then run this again.
+        quiet: true
+      when: not (push_build_cache_unsigned | bool)
+
+    # New: replaces csis-sandbox-ops' bin/spack-update-mirror.sh L31-L34 and
+    # its pushes (L56, L83): the environment's packages, signed, then the index.
+    - name: Push what the cache lacks, and rebuild its index
+      infrastructurebuilder.csis_spack.spack_buildcache_push:
+        spack: "{{ spack_exe }}"
+        env: "{{ spack_environment_dir }}"
+        mirror: "{{ spack_mirror }}"
+        key: "{{ omit if (push_build_cache_unsigned | bool) else spack_key_fingerprint }}"
+        unsigned: "{{ push_build_cache_unsigned | bool }}"
+        update_index: true
+        force: false
