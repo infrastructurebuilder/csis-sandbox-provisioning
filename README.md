@@ -170,14 +170,23 @@ runs it again, and fails unless the second run changes nothing and the
 result is what the roles should leave
 ([tests/container/](tests/container/)).
 
-## What has not been proved
+## What has been proved on AWS, and what has not
 
-No playbook here has been applied to a real head node, on RHEL, or
-on AWS. The four roles marked "no" above and `node-image.yml` have
-only been checked for syntax, lint and agreement with the scripts'
-text.
-[docs/LIVE-PROOF.md](docs/LIVE-PROOF.md) is the procedure for proving
-them on AWS; it costs money and has itself not been run.
+Cloud-Sandbox's spec 001 ran [docs/LIVE-PROOF.md](docs/LIVE-PROOF.md) on
+2026-11-23: a head node on RHEL 10.2 in the `noaa` account, built by
+`csis-sandbox-terraform`'s first boot with this repository's 0.0.3. There,
+`site.yml` ended `failed=0`, a second apply changed two tasks (both
+explained), and check mode found nothing to change; the four roles marked
+"no" above installed what they install, Spack built ESMF and PETSc, and
+`node-image.yml` made an image AWS reported `available`. The run's findings
+are in spec 001's outcome (`specs/001-live-proof-on-aws/spec.md` in
+Cloud-Sandbox).
+
+Still not proved: that the EFA and Lustre drivers load on the kernel the
+image boots (the first boot's update installs a newer kernel after they are
+built for the running one), and that the playbooks leave the same node the
+scripts did (the procedure's stage D, off by default). Each run of the
+procedure costs money.
 
 ## One deliberate correction: the Prefect server
 

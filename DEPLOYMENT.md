@@ -41,7 +41,8 @@ before an image is made.
 
 With the Spack binary mirror the installation takes about an hour.
 Without it, everything is compiled, and it takes several hours, depending
-on the head node's instance type.
+on the head node's instance type. On a `c6i.8xlarge` (32 processors) the
+whole first boot took 34 minutes (Cloud-Sandbox's spec 001, 2026-11-23).
 
 ## Following the installation
 
@@ -108,7 +109,9 @@ Two playbooks are applied by hand when a site wants them:
 Run `node-image.yml` again afterwards if the compute nodes should have
 these changes too.
 
-## What has not been proved
+## What has been proved
 
-None of this has been applied to a real head node yet.
-[docs/LIVE-PROOF.md](docs/LIVE-PROOF.md) is the procedure for doing so.
+All of this was applied to a real head node on 2026-11-23, by
+[docs/LIVE-PROOF.md](docs/LIVE-PROOF.md) (Cloud-Sandbox's spec 001); the
+[README](README.md#what-has-been-proved-on-aws-and-what-has-not) says what
+that showed, and what is still not proved.
