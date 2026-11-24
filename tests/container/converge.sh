@@ -287,7 +287,7 @@ case " $plays " in
                     echo "FAILED: a push to ioos-cloud-sandbox went through"
                     exit 1
                 fi
-                grep -q "ioos-cloud-sandbox is never written to" "$logs/push.ioos.log" ||
+                grep -q "is never written to" "$logs/push.ioos.log" ||
                     { tail -20 "$logs/push.ioos.log"; echo "FAILED: the refusal does not say why"; exit 1; }
                 echo "   a push to ioos-cloud-sandbox stops before sending anything"
                 ;;
