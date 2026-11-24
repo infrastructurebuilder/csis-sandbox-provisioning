@@ -84,7 +84,9 @@
         spack: "{{ spack_exe }}"
         env: "{{ spack_environment_dir }}"
         mirror: "{{ spack_mirror }}"
+        # The module refuses key and unsigned together, unsigned: false too, so
+        # each is left out when the other is used.
         key: "{{ omit if (push_build_cache_unsigned | bool) else spack_key_fingerprint }}"
-        unsigned: "{{ push_build_cache_unsigned | bool }}"
+        unsigned: "{{ true if (push_build_cache_unsigned | bool) else omit }}"
         update_index: true
         force: false

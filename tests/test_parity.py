@@ -467,3 +467,12 @@ def test_the_push_refuses_the_old_sites_bucket() -> None:
     assert "'ioos-cloud-sandbox' not in spack_mirror" in str(guard["ansible.builtin.assert"]["that"])
     assert "when" not in guard
     assert tasks.index(guard) == 0
+
+
+def test_a_signed_push_gives_the_key_and_not_unsigned() -> None:
+    # The module refuses key and unsigned together, even unsigned: false (found
+    # on spec 002's head node, the first signed push). Each is left out when the
+    # other is used.
+    args = push_task()
+    assert args["key"].startswith("{{ omit if ")
+    assert args["unsigned"].startswith("{{ true if ") and args["unsigned"].endswith(" else omit }}")
