@@ -62,7 +62,9 @@ Only a node that pushes needs the private half, and only while it pushes:
    ```
 
 2. **Import it, as the login user**: `spack gpg trust ~/signing.key`, then
-   `rm ~/signing.key`. `spack gpg list --signing` must show the fingerprint
+   `rm ~/signing.key`. Spack asks "Trust key? [y/N]"; where there is no
+   terminal to answer (a command run over `ssh` without one), give
+   `--yes-to-all`, or the import fails and the file is left behind. `spack gpg list --signing` must show the fingerprint
    under "Signing keys" (the trusted keys are listed above that heading; a
    key there alone cannot sign).
 3. **Push** (below).
