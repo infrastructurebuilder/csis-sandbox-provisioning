@@ -1,8 +1,9 @@
 # Proving the playbooks on a real head node
 
-*Version 2, written 2026-11-23 for Cloud-Sandbox's spec 001. **Not yet run.**
-Treat the first run as a test of this page as well as of the playbooks, and
-stop at any result the page does not predict.*
+*Version 3, 2026-11-23. Version 2 was written for Cloud-Sandbox's spec 001 and
+run once that day; version 3 carries what the run found into the boxes it
+changed (those marked `v3`). The run's findings are in spec 001's outcome.
+Stop at any result the page does not predict.*
 
 The container test proves the playbooks on AlmaLinux 10. It cannot prove the
 two kernel drivers, the Intel compilers, the Spack build, the tuning profile,
@@ -14,22 +15,33 @@ makes the node image, and removes everything it made.
 
 ## What it costs, and what it may touch
 
-- One head node of 32 processors (`c6i.8xlarge`, about $1.36 an hour) for the
-  length of the Spack build: several hours. One EFS volume, one machine image
-  and its snapshot, until stage E removes them.
+- One head node of 32 processors (`c6i.8xlarge`, about $1.36 an hour) from
+  box A5 to box E2. On the first run the first boot took 34 minutes and stage
+  B about ten more; the node is idle, and paid for, while it waits for an
+  answer. One EFS volume, one machine image and its snapshot, until stage E
+  removes them.
 - **Nothing that exists is changed.** Every resource the proof makes is new and
   carries the prefix `CSIS-Live-Proof` (`csis_live_proof` where a name allows
   no capitals). The plan in box A4 must show only additions; the VPC and its
-  subnets are described before and after, and must be the same (box E6).
+  subnets are described before and after, and must be the same (box E5).
 - **Every box that creates, changes or removes something on AWS** says so with
   **Changes AWS:** above it, and is run only on the operator's word.
 
 ## Where each box runs
 
 Two places, named in every step's heading: **your local machine**, in a
-terminal anywhere, with the AWS CLI and the Session Manager plugin; and **the
-head node**, in a Session Manager session (box A5). Every box sets the
+terminal anywhere, with the AWS CLI, the Session Manager plugin and `jq`; and
+**the head node**, in a Session Manager session (box A5). Every box sets the
 variables it uses, so a box can be pasted on its own.
+
+**OpenTofu and the `noaa` session.** The AWS CLI reads the `noaa` profile's
+single sign-on session, but OpenTofu's AWS provider cannot ("profile "noaa"
+is configured to use SSO but is missing required configuration: sso_region,
+sso_start_url"). So every box that runs OpenTofu against AWS first puts the
+session's temporary credentials into that box's environment, with
+`aws configure export-credentials`, and unsets `AWS_PROFILE`. Nothing is
+printed, and nothing is written to a file; the credentials last as long as
+the session.
 
 `$HOME/csis-live-proof` is this page's working directory on your local
 machine. The settings file there names the account's network: it is never
@@ -100,7 +112,7 @@ subnet's), `public_key` (box A2), `provisioning_version` (the tag of
 (cloudflow's newest tag). Leave `compare_with_script = false` unless stage D
 is wanted.
 
-Save the network as it is now, for box E6:
+Save the network as it is now, for box E5:
 
 ```sh
 # A3 -- box 2 of 3 -- v2
@@ -127,8 +139,9 @@ It must print `settings: complete`.
 About two minutes: OpenTofu fetches its providers.
 
 ```sh
-# A4 -- box 1 of 1 -- v2
-export AWS_PROFILE=noaa AWS_REGION=us-east-2
+# A4 -- box 1 of 1 -- v3
+export AWS_REGION=us-east-2
+eval "$(aws configure export-credentials --profile noaa --format env)"; unset AWS_PROFILE
 cd "$HOME/csis-live-proof"
 "$HOME/Cloud-Sandbox/exportit/sandbox-terraform/.tofu/1.13.9/tofu" init -input=false
 TOFU="$HOME/Cloud-Sandbox/exportit/sandbox-terraform/.tofu/1.13.9/tofu"
@@ -146,8 +159,9 @@ be destroyed, stop**: nothing is applied.
 key pair. About five minutes; the first boot then runs for hours on its own.
 
 ```sh
-# A5 -- box 1 of 2 -- v2
-export AWS_PROFILE=noaa AWS_REGION=us-east-2
+# A5 -- box 1 of 2 -- v3
+export AWS_REGION=us-east-2
+eval "$(aws configure export-credentials --profile noaa --format env)"; unset AWS_PROFILE
 cd "$HOME/csis-live-proof"
 TOFU="$HOME/Cloud-Sandbox/exportit/sandbox-terraform/.tofu/1.13.9/tofu"
 test "$("$TOFU" workspace show)" = live-proof && "$TOFU" apply proof.plan
@@ -180,12 +194,16 @@ sudo tail -n 5 /root/setup.log
 sudo cloud-init status
 ```
 
-Wait until `cloud-init status` says `done` (or `error`). Several hours.
+Wait until `cloud-init status` says `done` (or `error`). On the first run,
+with `c6i.8xlarge`, 34 minutes: Spack builds only ESMF, PETSc, HDF5,
+netCDF-C and parallel-netCDF, as Python, GCC and Intel's compilers and MPI are
+the system's. Check early as well as late: a boot that fails stops within
+seconds, and the node then waits, idle, for as long as no one looks.
 
 ### B2. The first boot's result (the head node)
 
 ```sh
-# B2 -- box 1 of 1 -- v2
+# B2 -- box 1 of 2 -- v3
 sudo grep -A3 'PLAY RECAP' /root/setup.log | tail -4
 sudo grep -E 'FAILED|left for LIVE-PROOF' /root/setup.log
 ```
@@ -193,9 +211,37 @@ sudo grep -E 'FAILED|left for LIVE-PROOF' /root/setup.log
 The recap must show `failed=0`, and the last line must be the one saying the
 node image is left for stage C. A `FAILED` line names the step that stopped.
 
+**If it stopped**, the fix is made, merged and tagged in the unit it concerns,
+`provisioning_version` (or `cloudflow_version`) in `proof.tfvars` set to the
+new tag, and the node booted again. The EFS volume is replaced with it: the
+first boot makes the `/save` link only on a new volume, so a node replaced on
+the old one cannot clone cloudflow (a finding of the first run, to be fixed in
+`csis-sandbox-terraform`). Then box B1 again.
+
+**Changes AWS:** this replaces the head node and its EFS volume, with
+everything on the volume. About ten minutes. Read the plan's list first: the
+instance, the volume, its mount target and two local files, and nothing else.
+
+```sh
+# B2 -- box 2 of 2 -- v3
+export AWS_REGION=us-east-2
+eval "$(aws configure export-credentials --profile noaa --format env)"; unset AWS_PROFILE
+cd "$HOME/csis-live-proof"
+TOFU="$HOME/Cloud-Sandbox/exportit/sandbox-terraform/.tofu/1.13.9/tofu"
+test "$("$TOFU" workspace show)" = live-proof && "$TOFU" plan -var-file=proof.tfvars \
+  -replace=aws_efs_file_system.main_efs -replace=aws_instance.head_node -out=again.plan | tail -3
+"$TOFU" apply again.plan
+"$TOFU" output -raw instance_id
+```
+
+It must print `Plan: 5 to add, 0 to change, 5 to destroy.`, then
+`Apply complete!` and the new node's id; box A5's second box then shows it
+`Online`.
+
 ### B3. Apply it again (the head node)
 
-About an hour; it runs on even if the session closes.
+About ten minutes (six on the first run); it runs on even if the session
+closes.
 
 ```sh
 # B3 -- box 1 of 1 -- v2
@@ -246,10 +292,25 @@ It must print nothing: the second apply rewrote no module file
 
 ### B7. JupyterHub (the head node)
 
+The `jupyterhub` role needs six settings only a site can give, and refuses to
+run without them (`README.md`, "JupyterHub, if a site wants it"). The proof
+gives it the container test's values (`tests/container/vars.yml`): a name that
+cannot resolve and no certificate, so nginx is enabled and not started, and
+the hub answers on its own port. A real site gives its own.
+
 ```sh
-# B7 -- box 1 of 1 -- v2
+# B7 -- box 1 of 1 -- v3
 cd /opt/sandbox-provisioning && export ANSIBLE_CONFIG=/opt/sandbox-provisioning/ansible.cfg
-sudo -E ansible-playbook -i inventories/local/hosts.yml jupyterhub.yml > /tmp/jupyterhub.log 2>&1
+sudo tee /root/jupyterhub-proof.yml >/dev/null <<'EOF'
+jupyterhub_server_name: hub.example.invalid
+jupyterhub_oauth_callback_url: https://hub.example.invalid/hub/oauth_callback
+jupyterhub_ssl_certificate: /etc/ssl/hub.example.invalid.crt
+jupyterhub_ssl_certificate_key: /etc/ssl/hub.example.invalid.key
+jupyterhub_admin_users_literal: "{'jupyter'}"
+jupyterhub_username_map_literal: "{}"
+EOF
+sudo -E ansible-playbook -i inventories/local/hosts.yml jupyterhub.yml \
+  --extra-vars @/root/jupyterhub-proof.yml > /tmp/jupyterhub.log 2>&1
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8000/hub/login
 ```
 
@@ -268,7 +329,7 @@ The image's name is the one the module chose for this deployment:
 
 Put the printed name in the next box, on **the head node**.
 
-**Changes AWS:** this makes a machine image and its snapshot. About twenty
+**Changes AWS:** this makes a machine image and its snapshot. About fifteen
 minutes.
 
 ```sh
@@ -322,8 +383,9 @@ volume, the groups, the role and the key pair. Read the list before you
 answer. About five minutes.
 
 ```sh
-# E2 -- box 1 of 1 -- v2
-export AWS_PROFILE=noaa AWS_REGION=us-east-2
+# E2 -- box 1 of 1 -- v3
+export AWS_REGION=us-east-2
+eval "$(aws configure export-credentials --profile noaa --format env)"; unset AWS_PROFILE
 cd "$HOME/csis-live-proof"
 "$HOME/Cloud-Sandbox/exportit/sandbox-terraform/.tofu/1.13.9/tofu" destroy -var-file=proof.tfvars
 ```
@@ -352,35 +414,58 @@ aws ec2 delete-snapshot --snapshot-id PUT-THE-SNAPSHOT-ID-HERE
 
 ### E4. Nothing left with the prefix (your local machine)
 
+Each kind of resource is asked for by its own call. The tagging API's index
+lags deletion: on the first run it still listed two instances, the snapshot
+and a volume with the proof's tag minutes after they were gone, so its answer
+is shown last, and a line there is checked by the resource's own call.
+
 ```sh
-# E4 -- box 1 of 1 -- v2
+# E4 -- box 1 of 1 -- v3
 export AWS_PROFILE=noaa AWS_REGION=us-east-2
+TAG='Name=tag:Project,Values=CSIS-Live-Proof'
+echo "instances: $(aws ec2 describe-instances --filters "$TAG" 'Name=instance-state-name,Values=pending,running,stopping,stopped' --query 'Reservations[].Instances[].InstanceId' --output text)"
+echo "volumes: $(aws ec2 describe-volumes --filters "$TAG" --query 'Volumes[].VolumeId' --output text)"
+echo "images: $(aws ec2 describe-images --owners self --filters 'Name=name,Values=CSIS-Live-Proof-*' --query 'Images[].ImageId' --output text)"
+echo "snapshots: $(aws ec2 describe-snapshots --owner-ids self --filters "$TAG" --query 'Snapshots[].SnapshotId' --output text)"
+echo "file systems: $(aws efs describe-file-systems --query "FileSystems[?Tags[?Key=='Project' && Value=='CSIS-Live-Proof']].FileSystemId" --output text)"
+echo "tagging index (may lag):"
 aws resourcegroupstaggingapi get-resources --tag-filters Key=Project,Values=CSIS-Live-Proof --query 'ResourceTagMappingList[].ResourceARN' --output text
-aws ec2 describe-images --owners self --filters 'Name=name,Values=CSIS-Live-Proof-*' --query 'Images[].ImageId' --output text
-aws ec2 describe-snapshots --owner-ids self --filters 'Name=tag:Project,Values=CSIS-Live-Proof' --query 'Snapshots[].SnapshotId' --output text
 ```
 
-All three must print nothing.
+The first five lines must name nothing after their colons. The index may still
+list some of the proof's resources for a while; each one listed must be
+terminated or not found by its own call.
 
 ### E5. The network as it was (your local machine)
 
+The comparison sorts what AWS lists in no fixed order (a route table's
+associations; on the first run two came back swapped) and leaves out the
+subnets' free-address counts, which other users of the VPC change. The
+counts are printed after, to be read.
+
 ```sh
-# E5 -- box 1 of 1 -- v2
+# E5 -- box 1 of 1 -- v3
 export AWS_PROFILE=noaa AWS_REGION=us-east-2
 PROOF=$HOME/csis-live-proof
 VPC=$(grep '^vpc_id' "$PROOF/proof.tfvars" | cut -d'"' -f2)
-aws ec2 describe-vpcs --vpc-ids "$VPC" --output json | diff - "$PROOF/vpc-before.json" && echo "VPC: as it was"
-aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC" --output json | diff - "$PROOF/subnets-before.json" && echo "subnets: as they were"
-aws ec2 describe-route-tables --filters "Name=vpc-id,Values=$VPC" --output json | diff - "$PROOF/routes-before.json" && echo "routes: as they were"
+ROUTES='[.RouteTables[] | .Associations |= sort_by(.RouteTableAssociationId)] | sort_by(.RouteTableId)'
+SUBNETS='[.Subnets[] | del(.AvailableIpAddressCount)] | sort_by(.SubnetId)'
+COUNTS='.Subnets | sort_by(.SubnetId)[] | [.SubnetId, .AvailableIpAddressCount] | @tsv'
+aws ec2 describe-vpcs --vpc-ids "$VPC" --output json | jq -S . | diff - <(jq -S . "$PROOF/vpc-before.json") && echo "VPC: as it was"
+aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC" --output json | jq -S "$SUBNETS" | diff - <(jq -S "$SUBNETS" "$PROOF/subnets-before.json") && echo "subnets: as they were"
+aws ec2 describe-route-tables --filters "Name=vpc-id,Values=$VPC" --output json | jq -S "$ROUTES" | diff - <(jq -S "$ROUTES" "$PROOF/routes-before.json") && echo "routes: as they were"
+aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC" --output json | jq -r "$COUNTS" | paste - <(jq -r "$COUNTS" "$PROOF/subnets-before.json" | cut -f2)
 ```
 
-It must print all three `as it was` / `as they were` lines. A difference that
-is not the proof's (another sandbox's subnet counts changing, say) is noted,
-not a failure; one that is the proof's is.
+It must print all three `as it was` / `as they were` lines, then each subnet
+with its free addresses now and before. A difference that is not the proof's
+(another sandbox's subnet counts changing, say) is noted, not a failure; one
+that is the proof's is.
 
 ## What to bring back
 
 The logs stay on your local machine and the node: they hold the node's
-addresses and the account's identifiers. Their summary, every finding, and
-each row of the "Not proved" table (Cloud-Sandbox's `exportit/MAP.md`), proved
-or not, go into spec 001's outcome.
+addresses and the account's identifiers. Copy what is wanted off the node
+before box E2 removes it. Their summary, every finding, and each row of the
+"Not proved" table (Cloud-Sandbox's `exportit/MAP.md`), proved or not, go
+into spec 001's outcome.
