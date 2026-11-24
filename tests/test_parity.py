@@ -431,3 +431,15 @@ def test_the_push_goes_where_the_script_pushed_signed_with_its_key(values: dict)
 
 def test_the_push_is_not_part_of_the_build() -> None:
     assert "push-build-cache" not in (UNIT / "site.yml").read_text()
+
+
+def test_the_key_check_reads_only_the_signing_keys() -> None:
+    # spack gpg list always lists the trusted (public) keys first; --signing
+    # adds a "Signing keys" section. A head node trusts the site's public key,
+    # so the fingerprint must be looked for after that heading only (found on
+    # a head node, spec 002).
+    plays = yaml.safe_load((UNIT / "push-build-cache.yml").read_text())
+    (check,) = [task for play in plays for task in play["tasks"] if "ansible.builtin.assert" in task]
+    that = check["ansible.builtin.assert"]["that"]
+    assert "'Signing keys'" in str(that)
+    assert "split('Signing keys')" in str(that)

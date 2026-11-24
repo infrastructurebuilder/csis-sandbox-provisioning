@@ -50,10 +50,14 @@
       check_mode: false
       when: not (push_build_cache_unsigned | bool)
 
-    # New: the check above, as a refusal that names the key.
+    # New: the check above, as a refusal that names the key. "spack gpg list"
+    # prints the trusted (public) keys first, and every head node trusts this
+    # key's public half, so only what follows "Signing keys" is read.
     - name: Stop unless the key to sign with is there
       ansible.builtin.assert:
-        that: spack_key_fingerprint in (push_build_cache_keys.stdout | replace(' ', '') | upper)
+        that:
+          - "'Signing keys' in push_build_cache_keys.stdout"
+          - spack_key_fingerprint in (push_build_cache_keys.stdout.split('Signing keys') | last | replace(' ', '') | upper)
         fail_msg: >-
           The signing key {{ spack_key_fingerprint }} is not in Spack's keyring
           for {{ sandbox_user }}. Put its private half on the node and run
