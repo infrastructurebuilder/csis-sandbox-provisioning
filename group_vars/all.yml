@@ -47,17 +47,24 @@ spack_arch: "arch=linux-rhel10-{{ spack_target }}"              # SPACKTARGET
 # it by hand with spack-pubkey.sh. The spack role adds it when
 # spack_site_mirror is true (stage 11).
 spack_mirror: s3://ioos-cloud-sandbox/public/spack/mirror       # SPACK_MIRROR
+# The old site key's address. Nothing here uses it since spec 002: that key's
+# private half could not be obtained, and the cache is signed with a key of its
+# own. Kept because the script exports it.
 spack_key_url: https://ioos-cloud-sandbox.s3.amazonaws.com/public/spack/mirror/spack.mirror.gpgkey.pub    # SPACK_KEY_URL
-# Where the script downloads the key to. Nothing here uses it: the key is
-# fetched and trusted by its fingerprint. Kept because the script exports it.
+# Where the script downloads the key to. The spack role puts the build cache's
+# public key here (its files/build-cache-signing-key.pub.asc) and trusts it.
 spack_key: "{{ spack_dir }}/opt/spack/gpg/spack.mirror.gpgkey.pub"    # SPACK_KEY
 
 # New (stage 11): whether to trust the site mirror's key and use the site
 # mirror. False, so that a build does what the script does.
 spack_site_mirror: false
-# New (stage 11): the fingerprint the key at spack_key_url must have. It is
-# the key kept in sandbox-ops/keys/, and what the URL served on 2026-11-14.
-spack_key_fingerprint: 22DC0120263F329AE5C9DA08F525C05B06DCA266
+# New (stage 11): the fingerprint the key the nodes trust must have, and the
+# key push-build-cache.yml signs with. Since spec 002 (2026-11-24) it is the
+# key made for the RHEL 10 build cache, whose public half is the spack role's
+# file and whose private half is kept in the team's Keybase folder
+# (docs/BUILD-CACHE.md). Until then it was the old site key, 22DC0120...
+# F525C05B06DCA266, kept in sandbox-ops/keys/.
+spack_key_fingerprint: 8D58116F59406FF3B70812BA065FBB8F66F38D66
 
 # ---------------------------------------------------------------------------
 # The node image

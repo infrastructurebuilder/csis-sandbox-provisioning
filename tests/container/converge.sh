@@ -280,6 +280,16 @@ case " $plays " in
                 grep -q "$fingerprint" "$logs/push.nokey.log" ||
                     { tail -20 "$logs/push.nokey.log"; echo "FAILED: the refusal does not name the key"; exit 1; }
                 echo "   a signed push without the key stops, naming it"
+                # The old site's bucket is never written to (spec 002, FR-008): a
+                # push aimed there stops before anything is sent.
+                if push true --extra-vars spack_mirror=s3://ioos-cloud-sandbox/public/spack/mirror \
+                    >"$logs/push.ioos.log" 2>&1; then
+                    echo "FAILED: a push to ioos-cloud-sandbox went through"
+                    exit 1
+                fi
+                grep -q "ioos-cloud-sandbox is never written to" "$logs/push.ioos.log" ||
+                    { tail -20 "$logs/push.ioos.log"; echo "FAILED: the refusal does not say why"; exit 1; }
+                echo "   a push to ioos-cloud-sandbox stops before sending anything"
                 ;;
         esac
         ;;

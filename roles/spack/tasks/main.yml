@@ -180,6 +180,36 @@
     - spack_save.stat.exists
     - spack_user_scope.chosen | length > 0
 
+# New: the directory the build cache's key goes into, Spack's GnuPG home. The
+# script's wget (spack-pubkey.sh L9) wrote into it after Spack had made it;
+# here the key may come first.
+- name: Make the directory the build cache's key goes into
+  ansible.builtin.file:
+    path: "{{ spack_key | dirname }}"
+    state: directory
+    owner: "{{ sandbox_user }}"
+    group: "{{ sandbox_user }}"
+    mode: "0700"
+  when:
+    - spack_save.stat.exists
+    - spack_site_mirror | bool
+
+# Replaces spack-pubkey.sh L8-L9
+# The script downloads the old site key from ioos-cloud-sandbox to $SPACK_KEY.
+# Since spec 002 the cache is signed with a key made for it (the old key's
+# private half could not be obtained); its public half is this role's file,
+# put where the script put the download. Nothing is fetched.
+- name: Put the build cache's public key where the script put the site's
+  ansible.builtin.copy:
+    src: build-cache-signing-key.pub.asc
+    dest: "{{ spack_key }}"
+    owner: "{{ sandbox_user }}"
+    group: "{{ sandbox_user }}"
+    mode: "0644"
+  when:
+    - spack_save.stat.exists
+    - spack_site_mirror | bool
+
 # New: the site's own build cache and its key, which the script leaves
 # commented out (L663-L670, L675-L678) and the operator added by hand with
 # spack-pubkey.sh. It is applied only when spack_site_mirror is true, which it
@@ -194,11 +224,11 @@
     spack_setup_spack: "{{ spack_exe }}"
     spack_setup_scope: site
     spack_setup:
-      # Replaces spack-pubkey.sh L8-L9 L11
-      # The script downloads the key to a file and trusts whatever it got.
-      # Here the key is trusted only if it has the fingerprint expected.
+      # Replaces spack-pubkey.sh L11
+      # The script trusts whatever its download held. Here the role's own
+      # file is trusted only if it has the fingerprint expected.
       - kind: gpg_key
-        key: "{{ spack_key_url }}"
+        key: "{{ spack_key }}"
         fingerprint: "{{ spack_key_fingerprint }}"
       # Replaces spack-pubkey.sh L18
       # The script's "mirror add" has no --scope either; the mirror goes to

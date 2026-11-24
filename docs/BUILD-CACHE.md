@@ -14,9 +14,8 @@ Cloud-Sandbox's spec 002.
   with nothing new has nothing to push.
 - **On a head node that finished its first boot cleanly** (`site.yml` ended
   `failed=0`). Spack refuses to push an environment any of whose packages,
-  build-only ones included, is not installed: it pushes what is installed and
-  then fails ("package not installed"), so a half-built environment leaves a
-  half-filled cache and a failed play.
+  build-only ones included, is not installed ("package not installed"), so a
+  half-built environment pushes nothing.
 - **Not from `site.yml`, ever.** The push is a separate, deliberate step:
   what goes in the cache is what every later node installs.
 
@@ -33,20 +32,43 @@ written to.
 
 ## The signing key
 
-Packages are signed with the site's key, whose fingerprint is
-`spack_key_fingerprint` in `group_vars/all.yml`. Every head node already
-trusts that key's public half (the `spack` role fetches it). Only a node that
-pushes needs the private half, and it needs it only while it pushes:
+Packages are signed with the key made for this cache on 2026-11-24,
+fingerprint `8D58116F59406FF3B70812BA065FBB8F66F38D66` (`spack_key_fingerprint` in `group_vars/all.yml`). The
+old site key, whose fingerprint ends `F525C05B06DCA266`, signed the RHEL 8
+cache; its private half could not be obtained, so it signs nothing here.
 
-1. **Copy the private half to the node by hand**, over the Session Manager
-   session, into the login user's home. It is never put in a repository, a
-   variable, a setting or a log.
-2. **Import it, as the login user**: `spack gpg trust <file>`, then remove the
-   file. `spack gpg list --signing` must show the fingerprint.
+- **The public half** is in this repository,
+  `roles/spack/files/build-cache-signing-key.pub.asc`. The `spack` role puts
+  it in Spack's keyring on every head node that uses the site mirror,
+  trusted only if it has that fingerprint. Nothing is downloaded.
+- **The private half** is kept in the team's Keybase folder,
+  `/Volumes/Keybase/team/csimagesystem`, beside a `README.md` that says what
+  it is and how to manage it. It is never put in a repository, a variable, a
+  setting, a log or an AWS secret. It has no passphrase, because the push
+  runs unattended; its protection is where it is kept.
+
+Only a node that pushes needs the private half, and only while it pushes:
+
+1. **Copy it to the node as a file**, from your local machine, through a
+   Session Manager tunnel, into the login user's home. Do not paste it into a
+   session: Session Manager may log what is typed.
+
+   ```sh
+   export AWS_PROFILE=noaa AWS_REGION=us-east-2
+   scp -i <the node's key pair> \
+     -o "ProxyCommand=aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters portNumber=%p" \
+     /Volumes/Keybase/team/csimagesystem/csis-sandbox-rhel10-build-cache.signing-key.8D58116F59406FF3B70812BA065FBB8F66F38D66.private.asc \
+     ec2-user@<instance id>:signing.key
+   ```
+
+2. **Import it, as the login user**: `spack gpg trust ~/signing.key`, then
+   `rm ~/signing.key`. `spack gpg list --signing` must show the fingerprint
+   under "Signing keys" (the trusted keys are listed above that heading; a
+   key there alone cannot sign).
 3. **Push** (below).
-4. **Remove the key from the node when the push is done**:
-   `spack gpg untrust <fingerprint>`. A node made into an image while the key
-   is on it would give the key to every compute node.
+4. **Remove it from the node when the push is done**:
+   `spack gpg untrust --signing 8D58116F59406FF3B70812BA065FBB8F66F38D66`. A node made into an image while the
+   key is on it would give the key to every compute node.
 
 Without the key in Spack's keyring, the play stops before pushing anything,
 and names the key it wanted.
@@ -61,6 +83,9 @@ ansible-playbook -i inventories/local/hosts.yml push-build-cache.yml --check
 ansible-playbook -i inventories/local/hosts.yml push-build-cache.yml
 ```
 
+- **The cache must be given** while `spack_mirror`'s default still names the
+  old bucket: add `-e spack_mirror=s3://csis-sandbox-rhel10-build-cache/`.
+  The play refuses `ioos-cloud-sandbox`, which is never written to.
 - **Check mode first.** It asks the cache which of the environment's
   packages it lacks, and pushes nothing. `changed` means some are missing.
 - **Then for real.** It pushes only what the cache lacks, signed, and rebuilds
