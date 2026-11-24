@@ -317,8 +317,18 @@ def test_the_site_mirror_list_is_spack_pubkeys_commands_and_is_off_by_default(va
     # The script downloads $SPACK_KEY_URL to $SPACK_KEY and trusts that file;
     # the step fetches the same URL, and trusts it only with the fingerprint.
     assert "wget $SPACK_KEY_URL -O $SPACK_KEY" in pubkey
+    # Since spec 002 the key is not downloaded: the role copies its own file to
+    # $SPACK_KEY, where the script's wget put the key, and trusts that file,
+    # pinned. The old site key, at $SPACK_KEY_URL, signs nothing new: its
+    # private half could not be obtained (2026-11-24).
+    tasks = yaml.safe_load((UNIT / "roles" / "spack" / "tasks" / "main.yml").read_text())
+    copy_name = "Put the build cache's public key where the script put the site's"
+    (copy,) = [entry for entry in tasks if entry.get("name") == copy_name]
+    assert copy["ansible.builtin.copy"]["src"] == "build-cache-signing-key.pub.asc"
+    assert copy["ansible.builtin.copy"]["dest"] == "{{ spack_key }}"
+    assert tasks.index(copy) < tasks.index(task)
     assert task["vars"]["spack_setup"] == [
-        {"kind": "gpg_key", "key": "{{ spack_key_url }}", "fingerprint": "{{ spack_key_fingerprint }}"},
+        {"kind": "gpg_key", "key": "{{ spack_key }}", "fingerprint": "{{ spack_key_fingerprint }}"},
         {"kind": "mirror", "name": "s3-mirror", "url": "{{ spack_mirror }}"},
         {"kind": "gpg_key", "from_mirrors": True},
     ]
@@ -419,9 +429,11 @@ def test_the_push_goes_where_the_script_pushed_signed_with_its_key(values: dict)
     # The script pushes to $SPACK_MIRROR, which the playbooks call spack_mirror.
     assert VARIABLES["SPACK_MIRROR"] == "spack_mirror"
     assert args["mirror"] == "{{ spack_mirror }}"
-    # KEY=F525C05B06DCA266 is the short form of the fingerprint the nodes trust.
+    # The script signs with KEY=F525C05B06DCA266, the old site key. Its private
+    # half could not be obtained (2026-11-24), so the cache is signed with a key
+    # made for it, the one the nodes are given (tests/test_build_cache_key.py).
     assert "spack_key_fingerprint" in args["key"]
-    assert values["spack_key_fingerprint"].endswith(SCRIPT_KEY)
+    assert not values["spack_key_fingerprint"].endswith(SCRIPT_KEY)
     # The script pushes the packages of the environment the node built.
     assert args["env"] == "{{ spack_environment_dir }}"
     # It rebuilds the index (L34), and pushes again only what is missing.
@@ -439,7 +451,19 @@ def test_the_key_check_reads_only_the_signing_keys() -> None:
     # so the fingerprint must be looked for after that heading only (found on
     # a head node, spec 002).
     plays = yaml.safe_load((UNIT / "push-build-cache.yml").read_text())
-    (check,) = [task for play in plays for task in play["tasks"] if "ansible.builtin.assert" in task]
+    name = "Stop unless the key to sign with is there"
+    (check,) = [task for play in plays for task in play["tasks"] if task.get("name") == name]
     that = check["ansible.builtin.assert"]["that"]
     assert "'Signing keys'" in str(that)
     assert "split('Signing keys')" in str(that)
+
+
+def test_the_push_refuses_the_old_sites_bucket() -> None:
+    # FR-002: ioos-cloud-sandbox is never written to; spack_mirror pointed there
+    # until spec 002's defaults switch, so a push left at the default must stop.
+    plays = yaml.safe_load((UNIT / "push-build-cache.yml").read_text())
+    tasks = plays[0]["tasks"]
+    (guard,) = [task for task in tasks if task.get("name") == "Stop if the cache is the old site's bucket"]
+    assert "'ioos-cloud-sandbox' not in spack_mirror" in str(guard["ansible.builtin.assert"]["that"])
+    assert "when" not in guard
+    assert tasks.index(guard) == 0

@@ -40,6 +40,18 @@
     push_build_cache_unsigned: false
 
   tasks:
+    # New: ioos-cloud-sandbox holds the old RHEL 8 cache and is never written
+    # to (Cloud-Sandbox's spec 002, FR-002). spack_mirror pointed there by
+    # default until that spec's last step, so a push left at it stops here.
+    - name: Stop if the cache is the old site's bucket
+      ansible.builtin.assert:
+        that: "'ioos-cloud-sandbox' not in spack_mirror"
+        fail_msg: >-
+          spack_mirror is {{ spack_mirror }}: ioos-cloud-sandbox is never written
+          to. Give the RHEL 10 cache, for example
+          -e spack_mirror=s3://csis-sandbox-rhel10-build-cache/.
+        quiet: true
+
     # New: the script assumes the private key was imported (its L24); this
     # checks it, so that a push is not refused half-way.
     - name: List the signing keys in Spack's keyring
