@@ -130,8 +130,13 @@
         name: spack-public
         url: https://cache.spack.io
       # Replaces funcs-setup-instance.sh L700
-      - kind: gpg_key
-        from_mirrors: true
+      # The collection's from_mirrors step does not answer Spack's "Trust key?
+      # [y/N]", which stopped spec 002's second build once the cache published
+      # its key; the script's command is run as it is, with --yes-to-all.
+      # Trusting keys changes no configuration, and is not reported as a change.
+      - kind: command
+        args: [buildcache, keys, --install, --trust, --yes-to-all]
+        changes: never
   when: spack_save.stat.exists
 
 # New: (stage 12) on a head node built by the script, or by these playbooks
@@ -237,8 +242,13 @@
         name: s3-mirror
         url: "{{ spack_mirror }}"
       # Replaces spack-pubkey.sh L19
-      - kind: gpg_key
-        from_mirrors: true
+      # The collection's from_mirrors step does not answer Spack's "Trust key?
+      # [y/N]", which stopped spec 002's second build once the cache published
+      # its key; the script's command is run as it is, with --yes-to-all.
+      # Trusting keys changes no configuration, and is not reported as a change.
+      - kind: command
+        args: [buildcache, keys, --install, --trust, --yes-to-all]
+        changes: never
   when:
     - spack_save.stat.exists
     - spack_site_mirror | bool

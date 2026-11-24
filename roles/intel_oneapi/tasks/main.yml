@@ -71,5 +71,10 @@
       # Replaces funcs-setup-instance.sh L959
       # The script's "mirror add" just before it is not carried: see
       # tests/not_carried.yml.
-      - kind: gpg_key
-        from_mirrors: true
+      # The collection's from_mirrors step does not answer Spack's "Trust key?
+      # [y/N]", which stopped spec 002's second build once the cache published
+      # its key; the script's command is run as it is, with --yes-to-all.
+      # Trusting keys changes no configuration, and is not reported as a change.
+      - kind: command
+        args: [buildcache, keys, --install, --trust, --yes-to-all]
+        changes: never

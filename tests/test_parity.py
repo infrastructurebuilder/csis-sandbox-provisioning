@@ -188,6 +188,17 @@ def setup_lists(role: str) -> list[dict]:
     return [task for task in tasks if task.get("ansible.builtin.include_role", {}).get("name") == SETUP_ROLE]
 
 
+# The scripts' "spack buildcache keys --install --trust", as the lists carry it
+# out since spec 002: the command itself, with --yes-to-all. The collection's
+# from_mirrors step does not answer Spack's "Trust key? [y/N]", which stopped
+# spec 002's second build once the cache published its key.
+TRUST_MIRROR_KEYS = {
+    "kind": "command",
+    "args": ["buildcache", "keys", "--install", "--trust", "--yes-to-all"],
+    "changes": "never",
+}
+
+
 def as_steps(commands: list[str]) -> list[dict]:
     """Write a script's Spack commands as the steps that do the same.
 
@@ -224,7 +235,7 @@ def as_steps(commands: list[str]) -> list[dict]:
             )
         elif words[:2] == ["buildcache", "keys"]:
             assert words[2:] == ["--install", "--trust"]
-            steps.append({"kind": "gpg_key", "from_mirrors": True})
+            steps.append(TRUST_MIRROR_KEYS)
         elif words[:2] == ["gpg", "trust"]:
             steps.append({"kind": "gpg_key", "key": words[2]})
         else:
@@ -280,8 +291,8 @@ def test_the_intel_list_is_the_scripts_commands_in_order(values: dict, script: d
     # externals, then five "config add", then "mirror add" (not carried, see
     # tests/not_carried.yml), then "buildcache keys".
     theirs = as_steps(spack_commands(lines))
-    assert [step["kind"] for step in theirs] == ["detect", "config", "mirror", "gpg_key"]
-    assert [step["kind"] for step in ours] == ["environment", "detect", "config", "gpg_key"]
+    assert [step["kind"] for step in theirs] == ["detect", "config", "mirror", "command"]
+    assert [step["kind"] for step in ours] == ["environment", "detect", "config", "command"]
 
     environment, detect, config, keys = ours
     loads = [line for line in lines if line.startswith(("module ", ". /usr/share/Modules"))]
@@ -312,7 +323,7 @@ def test_the_site_mirror_list_is_spack_pubkeys_commands_and_is_off_by_default(va
     assert theirs == [
         {"kind": "gpg_key", "key": "$SPACK_KEY"},
         {"kind": "mirror", "name": "s3-mirror", "url": "$SPACK_MIRROR"},
-        {"kind": "gpg_key", "from_mirrors": True},
+        TRUST_MIRROR_KEYS,
     ]
     # The script downloads $SPACK_KEY_URL to $SPACK_KEY and trusts that file;
     # the step fetches the same URL, and trusts it only with the fingerprint.
@@ -330,7 +341,7 @@ def test_the_site_mirror_list_is_spack_pubkeys_commands_and_is_off_by_default(va
     assert task["vars"]["spack_setup"] == [
         {"kind": "gpg_key", "key": "{{ spack_key }}", "fingerprint": "{{ spack_key_fingerprint }}"},
         {"kind": "mirror", "name": "s3-mirror", "url": "{{ spack_mirror }}"},
-        {"kind": "gpg_key", "from_mirrors": True},
+        TRUST_MIRROR_KEYS,
     ]
     # The script sets the two addresses itself; they are the ones in group_vars.
     for name in ("SPACK_MIRROR", "SPACK_KEY_URL"):
@@ -476,3 +487,20 @@ def test_a_signed_push_gives_the_key_and_not_unsigned() -> None:
     args = push_task()
     assert args["key"].startswith("{{ omit if ")
     assert args["unsigned"].startswith("{{ true if ") and args["unsigned"].endswith(" else omit }}")
+
+
+def test_no_step_trusts_mirror_keys_through_the_collections_from_mirrors() -> None:
+    # It cannot answer Spack's "Trust key? [y/N]" (spec 002); see TRUST_MIRROR_KEYS.
+    steps = [
+        step
+        for role in ("spack", "intel_oneapi")
+        for task in setup_lists(role)
+        for step in task["vars"]["spack_setup"]
+    ]
+    assert steps
+    assert not [step for step in steps if step.get("from_mirrors")]
+    assert [step for step in steps if step["kind"] == "command"] == [TRUST_MIRROR_KEYS] * 3
+
+
+def test_as_steps_carries_out_buildcache_keys_with_yes_to_all() -> None:
+    assert as_steps(["spack buildcache keys --install --trust"]) == [TRUST_MIRROR_KEYS]
