@@ -17,7 +17,7 @@ build:
 
 # Syntax, ansible-lint at its strictest profile, shellcheck, and ruff on the tests.
 lint:
-    uv run ansible-playbook --syntax-check site.yml node-image.yml users.yml jupyterhub.yml tests/render.yml tests/render-templates.yml tests/user-scope.yml tests/jupyterhub-check.yml tests/container/verify.yml
+    uv run ansible-playbook --syntax-check site.yml node-image.yml users.yml jupyterhub.yml push-build-cache.yml tests/render.yml tests/render-templates.yml tests/user-scope.yml tests/jupyterhub-check.yml tests/container/verify.yml
     uv run ansible-lint
     shellcheck tests/container/converge.sh
     uv run ruff check tests

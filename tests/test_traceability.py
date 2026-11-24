@@ -27,7 +27,13 @@ STEP = re.compile(r"^(\s*)- (kind: .+)$")
 REPLACES = re.compile(r"#\s*Replaces (?P<file>[\w./-]+) (?P<lines>L\d+(?:-L\d+)?(?: L\d+(?:-L\d+)?)*)\s*$")
 NEW = re.compile(r"#\s*New: \S")
 
-PLAYBOOKS = [UNIT / "site.yml", UNIT / "node-image.yml", UNIT / "users.yml", UNIT / "jupyterhub.yml"]
+PLAYBOOKS = [
+    UNIT / "site.yml",
+    UNIT / "node-image.yml",
+    UNIT / "users.yml",
+    UNIT / "jupyterhub.yml",
+    UNIT / "push-build-cache.yml",
+]
 TASK_FILES = sorted(UNIT.glob("roles/*/tasks/*.yml"))
 
 # Lines of a shell script that do nothing a task would have to do.

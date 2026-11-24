@@ -215,6 +215,76 @@ if [ "$skipped" != "$expected_skips" ]; then
     exit 1
 fi
 
+# Spec 002: push-build-cache.yml against a build cache in a directory,
+# unsigned (the container has no signing key). Spack refuses to push an
+# environment any of whose packages is not installed, and the site's
+# environment is only concretized here, so the push is of an environment of
+# its own: one small package, zlib-ng, fake-installed. A fake install leaves
+# out build-only dependencies, which the push also sends, so the one it needs,
+# compiler-wrapper, is a root of its own there.
+case " $plays " in
+    *" site "*)
+        case ",$roles," in
+            *",spack_environment,"*)
+                echo "== pushing the environment to a build cache in a directory (spec 002)"
+                # shellcheck disable=SC2016 # expanded by the shell in the container
+                if ! in_container sudo -u ec2-user bash -c '
+                    set -e
+                    spack=$(ls /save/environments/spack.*/bin/spack)
+                    "$spack" env create --dir /tmp/push-env
+                    "$spack" -e /tmp/push-env add zlib-ng compiler-wrapper
+                    "$spack" -e /tmp/push-env concretize
+                    "$spack" -e /tmp/push-env install --fake
+                ' >"$logs/fake-install.log" 2>&1; then
+                    tail -30 "$logs/fake-install.log"
+                    echo "FAILED: the fake install for the push did not finish; full log in $logs/fake-install.log"
+                    exit 1
+                fi
+                # $1: unsigned or not; the rest: more arguments for ansible-playbook.
+                push() {
+                    # shellcheck disable=SC2016 # $1 and $@ are expanded by the shell in the container
+                    in_container bash -c 'cd /opt/sandbox-provisioning && ANSIBLE_CONFIG=/opt/sandbox-provisioning/ansible.cfg exec ansible-playbook --inventory inventories/local/hosts.yml --extra-vars @/srv/provisioning/tests/container/vars.yml --extra-vars "{\"spack_mirror\": \"/tmp/build-cache\", \"spack_environment_dir\": \"/tmp/push-env\", \"push_build_cache_unsigned\": $1}" "${@:2}" push-build-cache.yml' _ "$@"
+                }
+                cached() { in_container bash -c 'find /tmp/build-cache -type f 2>/dev/null | wc -l'; }
+                for run in check first second; do
+                    extra=()
+                    [ "$run" = check ] && extra=(--check)
+                    if ! push true "${extra[@]}" >"$logs/push.$run.log" 2>&1; then
+                        tail -40 "$logs/push.$run.log"
+                        # shellcheck disable=SC2016 # expanded by the shell in the container
+                        in_container sudo -u ec2-user bash -c '"$(ls /save/environments/spack.*/bin/spack)" -e /tmp/push-env spec -I -t -L' || true
+                        echo "FAILED: the $run push did not finish; full log in $logs/push.$run.log"
+                        exit 1
+                    fi
+                    echo "   push-build-cache.yml ($run): $(recap "$logs/push.$run.log"); files in the cache: $(cached)"
+                    changed=$(count "$logs/push.$run.log" changed)
+                    case "$run" in
+                        check)
+                            [ "$changed" != 0 ] && [ "$(cached)" = 0 ] ||
+                                { echo "FAILED: check mode must report the missing package and push nothing"; exit 1; } ;;
+                        first)
+                            [ "$changed" != 0 ] && [ "$(cached)" != 0 ] ||
+                                { echo "FAILED: the first push must push the package"; exit 1; } ;;
+                        second)
+                            [ "$changed" = 0 ] ||
+                                { grep -B1 -A6 '^changed:' "$logs/push.$run.log" | head -40; echo "FAILED: the second push changed something"; exit 1; } ;;
+                    esac
+                done
+                # Signed, with no signing key in Spack's keyring: it must stop
+                # before pushing, and name the key.
+                if push false >"$logs/push.nokey.log" 2>&1; then
+                    echo "FAILED: a signed push without the key went through"
+                    exit 1
+                fi
+                fingerprint=$(sed -nE 's/^spack_key_fingerprint: *([0-9A-F]{40}).*/\1/p' "$unit/group_vars/all.yml")
+                grep -q "$fingerprint" "$logs/push.nokey.log" ||
+                    { tail -20 "$logs/push.nokey.log"; echo "FAILED: the refusal does not name the key"; exit 1; }
+                echo "   a signed push without the key stops, naming it"
+                ;;
+        esac
+        ;;
+esac
+
 case " $plays " in
     *" users "*)
         echo "== removing the test user"

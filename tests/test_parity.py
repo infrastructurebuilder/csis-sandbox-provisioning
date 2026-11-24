@@ -399,3 +399,35 @@ def test_stage_12_removes_only_the_two_paths_the_script_left_in_the_user_scope()
         "config": {"install_tree": {"padded_length": 73}},
         "modules": {"default": {"enable": ["tcl"]}},
     }
+
+
+# Spec 002: push-build-cache.yml replaces csis-sandbox-ops' bin/spack-update-mirror.sh,
+# which is not in legacy/ (it is that unit's). Its L31 names the key it signs with.
+SCRIPT_KEY = "F525C05B06DCA266"
+PUSH = "infrastructurebuilder.csis_spack.spack_buildcache_push"
+
+
+def push_task() -> dict:
+    plays = yaml.safe_load((UNIT / "push-build-cache.yml").read_text())
+    found = [task[PUSH] for play in plays for task in play["tasks"] if PUSH in task]
+    assert len(found) == 1
+    return found[0]
+
+
+def test_the_push_goes_where_the_script_pushed_signed_with_its_key(values: dict) -> None:
+    args = push_task()
+    # The script pushes to $SPACK_MIRROR, which the playbooks call spack_mirror.
+    assert VARIABLES["SPACK_MIRROR"] == "spack_mirror"
+    assert args["mirror"] == "{{ spack_mirror }}"
+    # KEY=F525C05B06DCA266 is the short form of the fingerprint the nodes trust.
+    assert "spack_key_fingerprint" in args["key"]
+    assert values["spack_key_fingerprint"].endswith(SCRIPT_KEY)
+    # The script pushes the packages of the environment the node built.
+    assert args["env"] == "{{ spack_environment_dir }}"
+    # It rebuilds the index (L34), and pushes again only what is missing.
+    assert args["update_index"] is True
+    assert args["force"] is False
+
+
+def test_the_push_is_not_part_of_the_build() -> None:
+    assert "push-build-cache" not in (UNIT / "site.yml").read_text()
