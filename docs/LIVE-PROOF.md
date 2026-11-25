@@ -195,9 +195,11 @@ sudo cloud-init status
 ```
 
 Wait until `cloud-init status` says `done` (or `error`). On the first run,
-with `c6i.8xlarge`, 34 minutes: Spack builds only ESMF, PETSc, HDF5,
-netCDF-C and parallel-netCDF, as Python, GCC and Intel's compilers and MPI are
-the system's. Check early as well as late: a boot that fails stops within
+with `c6i.8xlarge`, 34 minutes, Spack compiling the environment's 24 packages
+(ESMF, PETSc, HDF5, netCDF and the rest; Python, GCC and Intel's compilers
+and MPI are the system's). Since `csis-sandbox-provisioning` 0.0.4 the
+environment installs from the RHEL 10 build cache (Cloud-Sandbox's spec 002),
+and the whole first boot took 24 minutes. Check early as well as late: a boot that fails stops within
 seconds, and the node then waits, idle, for as long as no one looks.
 
 ### B2. The first boot's result (the head node)

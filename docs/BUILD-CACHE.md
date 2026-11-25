@@ -85,9 +85,9 @@ ansible-playbook -i inventories/local/hosts.yml push-build-cache.yml --check
 ansible-playbook -i inventories/local/hosts.yml push-build-cache.yml
 ```
 
-- **The cache must be given** while `spack_mirror`'s default still names the
-  old bucket: add `-e spack_mirror=s3://csis-sandbox-rhel10-build-cache/`.
-  The play refuses `ioos-cloud-sandbox`, which is never written to.
+- **The cache is `spack_mirror`**, whose default is the RHEL 10 cache since
+  0.0.4. The play refuses `ioos-cloud-sandbox`, which is never written to;
+  give `-e spack_mirror=...` only to push somewhere else.
 - **Check mode first.** It asks the cache which of the environment's
   packages it lacks, and pushes nothing. `changed` means some are missing.
 - **Then for real.** It pushes only what the cache lacks, signed, and rebuilds
