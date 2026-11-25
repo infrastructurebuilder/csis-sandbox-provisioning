@@ -46,7 +46,9 @@ def test_every_mapped_variable_exists() -> None:
     assert set(VARIABLES.values()) <= set(defined)
 
 
-@pytest.mark.parametrize("name", sorted(set(VARIABLES) - {"ami_name"}))
+# ami_name has the script's form, not its value (a time stamp), below. SPACK_MIRROR
+# differs on purpose since spec 002: test_the_defaults_install_from_the_rhel10_cache.
+@pytest.mark.parametrize("name", sorted(set(VARIABLES) - {"ami_name", "SPACK_MIRROR"}))
 def test_a_variable_has_the_value_the_script_gives_it(
     name: str, values: dict, script: dict[str, str]
 ) -> None:
@@ -317,7 +319,8 @@ def test_the_intel_list_is_the_scripts_commands_in_order(values: dict, script: d
 
 def test_the_site_mirror_list_is_spack_pubkeys_commands_and_is_off_by_default(values: dict) -> None:
     (task,) = [task for task in setup_lists("spack") if "spack_site_mirror | bool" in task.get("when", [])]
-    assert values["spack_site_mirror"] is False
+    # On since spec 002: the list applies the RHEL 10 cache by default
+    # (test_the_defaults_install_from_the_rhel10_cache).
     pubkey = [line.strip() for line in (UNIT / "legacy" / "spack-pubkey.sh").read_text().splitlines()]
     theirs = as_steps(spack_commands([line for line in pubkey if line != "spack gpg list"]))
     assert theirs == [
@@ -343,8 +346,10 @@ def test_the_site_mirror_list_is_spack_pubkeys_commands_and_is_off_by_default(va
         {"kind": "mirror", "name": "s3-mirror", "url": "{{ spack_mirror }}"},
         TRUST_MIRROR_KEYS,
     ]
-    # The script sets the two addresses itself; they are the ones in group_vars.
-    for name in ("SPACK_MIRROR", "SPACK_KEY_URL"):
+    # The script sets the two addresses itself. SPACK_KEY_URL is the one in
+    # group_vars; SPACK_MIRROR differs since spec 002 (the RHEL 10 cache):
+    # test_the_defaults_install_from_the_rhel10_cache.
+    for name in ("SPACK_KEY_URL",):
         (theirs_value,) = re.findall(rf"^{name}='([^']+)'$", "\n".join(pubkey), re.MULTILINE)
         assert values[name] == theirs_value
     assert re.fullmatch(r"[0-9A-F]{40}", values["spack_key_fingerprint"])
@@ -504,3 +509,18 @@ def test_no_step_trusts_mirror_keys_through_the_collections_from_mirrors() -> No
 
 def test_as_steps_carries_out_buildcache_keys_with_yes_to_all() -> None:
     assert as_steps(["spack buildcache keys --install --trust"]) == [TRUST_MIRROR_KEYS]
+
+
+def test_the_defaults_install_from_the_rhel10_cache(values: dict) -> None:
+    # Spec 002, FR-004: once a build had installed from the new cache (its
+    # T023, 2026-11-25: 19 packages fetched, none built), the defaults switch
+    # to it. The script's are SPACK_CACHEONLY=-1 (compile everything) and the
+    # RHEL 8 cache in ioos-cloud-sandbox, which supplies nothing to RHEL 10.
+    settings = yaml.safe_load((UNIT / "group_vars" / "all.yml").read_text())
+    assert settings["spack_cache_only"] == 0
+    assert settings["spack_site_mirror"] is True
+    assert settings["spack_mirror"] == "s3://csis-sandbox-rhel10-build-cache/"
+    assert values["spack_site_mirror"] is True
+    script = dict(re.findall(r"^export (\w+)='?([^'\n]*)'?$", ENVIRONMENT.read_text(), re.MULTILINE))
+    assert script["SPACK_CACHEONLY"] == "-1"
+    assert script["SPACK_MIRROR"] == "s3://ioos-cloud-sandbox/public/spack/mirror"

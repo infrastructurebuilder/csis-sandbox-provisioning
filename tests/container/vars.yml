@@ -3,6 +3,9 @@
 base_system_subscription_manager: false
 base_system_rhui_client: false
 base_system_crb_repo: crb
+# The site mirror is the RHEL 10 cache in S3 since spec 002, which the
+# container cannot reach; off, as it was by default before.
+spack_site_mirror: false
 # Concretize the Spack environment, but do not build it (stage 10).
 spack_environment_state: concretized
 # JupyterHub's site settings, which have no default (stage 13). Test values:
