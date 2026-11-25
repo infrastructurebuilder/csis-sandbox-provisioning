@@ -39,10 +39,15 @@ before an image is made.
 
 [README.md](README.md) lists the roles in order, and what each replaces.
 
-With the Spack binary mirror the installation takes about an hour.
-Without it, everything is compiled, and it takes several hours, depending
-on the head node's instance type. On a `c6i.8xlarge` (32 processors) the
-whole first boot took 34 minutes (Cloud-Sandbox's spec 001, 2026-11-23).
+Since 0.0.4 the Spack environment installs from the sandbox's RHEL 10 build
+cache (`spack_cache_only: 0`, `spack_site_mirror: true`, `spack_mirror` the
+cache's bucket), and only what the cache lacks is compiled. On a
+`c6i.8xlarge` (32 processors) the whole first boot took 24 minutes from the
+cache (Cloud-Sandbox's spec 002, 2026-11-25), and 34 minutes compiling the
+environment's 24 packages (spec 001, 2026-11-23); on a smaller node,
+compiling takes hours. The cache's bucket is made by `csis-sandbox-terraform`'s
+`build-cache/`; a head node reads it through its role. How a build gets into
+the cache is [docs/BUILD-CACHE.md](docs/BUILD-CACHE.md).
 
 ## Following the installation
 

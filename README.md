@@ -16,6 +16,7 @@ how to follow it.
 | --- | --- |
 | [site.yml](site.yml) | Builds the software stack: twelve roles, one per function of the script, in the script's order |
 | [node-image.yml](node-image.yml) | Snapshots the head node's root volume and registers the compute-node image |
+| [push-build-cache.yml](push-build-cache.yml) | Pushes a built head node's Spack environment to the RHEL 10 build cache, signed; run by hand, never by `site.yml` ([docs/BUILD-CACHE.md](docs/BUILD-CACHE.md)) |
 
 ## This is a translation, kept beside its original
 
