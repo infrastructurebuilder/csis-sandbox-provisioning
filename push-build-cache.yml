@@ -42,7 +42,8 @@
   tasks:
     # New: ioos-cloud-sandbox holds the old RHEL 8 cache and is never written
     # to (Cloud-Sandbox's spec 002, FR-002). spack_mirror pointed there by
-    # default until that spec's last step, so a push left at it stops here.
+    # default until that spec's last step, and a site may still name it, so a
+    # push given it stops here.
     - name: Stop if the cache is the old site's bucket
       ansible.builtin.assert:
         that: "'ioos-cloud-sandbox' not in spack_mirror"
