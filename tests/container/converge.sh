@@ -290,6 +290,65 @@ case " $plays " in
                 grep -q "is never written to" "$logs/push.ioos.log" ||
                     { tail -20 "$logs/push.ioos.log"; echo "FAILED: the refusal does not say why"; exit 1; }
                 echo "   a push to ioos-cloud-sandbox stops before sending anything"
+
+                # Spec 009: the three steps that trust the keys the mirrors
+                # publish, against a mirror that publishes one. A throwaway key
+                # signs a push to a second cache in a directory, which publishes
+                # it; the key is then taken off, and site.yml is applied with
+                # that cache as the site mirror, so that all three steps run
+                # (the spack role's first list, its site mirror's list, and
+                # intel_oneapi's). With the collection's 0.0.2 they stopped at
+                # Spack's "Trust key? [y/N]".
+                echo "== trusting the keys a mirror publishes (spec 009)"
+                # shellcheck disable=SC2016 # expanded by the shell in the container
+                if ! in_container sudo -u ec2-user bash -c '
+                    set -euo pipefail
+                    spack=$(ls /save/environments/spack.*/bin/spack)
+                    "$spack" gpg create "CSIS container test" test@example.invalid >/dev/null 2>&1
+                    "$spack" gpg list --signing --fmt fpr | sed -n "/Signing keys/,\$p" | grep -oE "[0-9A-F]{40}" | head -1 > /tmp/throwaway.fpr
+                    test -s /tmp/throwaway.fpr
+                ' >"$logs/throwaway.log" 2>&1; then
+                    tail -20 "$logs/throwaway.log"
+                    echo "FAILED: no throwaway signing key could be made"
+                    exit 1
+                fi
+                throwaway=$(in_container cat /tmp/throwaway.fpr)
+                if ! push false --extra-vars "{\"spack_mirror\": \"/tmp/signed-cache\", \"spack_key_fingerprint\": \"$throwaway\"}" \
+                    >"$logs/push.signed.log" 2>&1; then
+                    tail -40 "$logs/push.signed.log"
+                    echo "FAILED: the signed push did not finish; full log in $logs/push.signed.log"
+                    exit 1
+                fi
+                published=$(in_container bash -c 'find /tmp/signed-cache -path "*manifests/key*" -type f | wc -l')
+                [ "$published" != 0 ] || { echo "FAILED: the signed push published no key"; exit 1; }
+                echo "   a signed push with a throwaway key: $(recap "$logs/push.signed.log"); keys published: $published"
+                # shellcheck disable=SC2016 # expanded by the shell in the container
+                in_container sudo -u ec2-user bash -c '
+                    spack=$(ls /save/environments/spack.*/bin/spack); fpr=$(cat /tmp/throwaway.fpr)
+                    "$spack" gpg untrust --signing "$fpr" >/dev/null 2>&1 || true
+                    "$spack" gpg list --trusted --fmt fpr | grep -q "$fpr" && "$spack" gpg untrust "$fpr" >/dev/null 2>&1 || true
+                '
+                # shellcheck disable=SC2016 # expanded by the shell in the container
+                trusted() { in_container sudo -u ec2-user bash -c '"$(ls /save/environments/spack.*/bin/spack)" gpg list --trusted --fmt fpr' | grep -c "$throwaway" || true; }
+                [ "$(trusted)" = 0 ] || { echo "FAILED: the throwaway key is still trusted after it was taken off"; exit 1; }
+                mirror_keys() {
+                    # shellcheck disable=SC2016 # $1 is expanded by the shell in the container
+                    in_container bash -c 'cd /opt/sandbox-provisioning && ANSIBLE_CONFIG=/opt/sandbox-provisioning/ansible.cfg exec ansible-playbook --inventory inventories/local/hosts.yml --extra-vars @/srv/provisioning/tests/container/vars.yml --extra-vars "{\"spack_site_mirror\": true, \"spack_mirror\": \"/tmp/signed-cache\"}" --tags spack,intel_oneapi site.yml' _
+                }
+                for run in first second; do
+                    if ! mirror_keys >"$logs/mirror-keys.$run.log" 2>&1; then
+                        tail -40 "$logs/mirror-keys.$run.log"
+                        echo "FAILED: site.yml with a mirror that publishes a key did not finish ($run); full log in $logs/mirror-keys.$run.log"
+                        exit 1
+                    fi
+                    echo "   site.yml --tags spack,intel_oneapi with that mirror ($run): $(recap "$logs/mirror-keys.$run.log"); the key trusted: $(trusted)"
+                done
+                [ "$(trusted)" != 0 ] || { echo "FAILED: the steps did not trust the key the mirror publishes"; exit 1; }
+                [ "$(count "$logs/mirror-keys.second.log" changed)" = 0 ] ||
+                    { grep -B1 -A6 '^changed:' "$logs/mirror-keys.second.log" | head -40; echo "FAILED: the second apply changed something"; exit 1; }
+                echo "   the mirrors' keys trusted with no prompt; a second apply changed nothing"
+                # shellcheck disable=SC2016 # expanded by the shell in the container
+                in_container sudo -u ec2-user bash -c '"$(ls /save/environments/spack.*/bin/spack)" mirror remove --scope site s3-mirror' >/dev/null
                 ;;
         esac
         ;;

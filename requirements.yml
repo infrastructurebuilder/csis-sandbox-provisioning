@@ -1,11 +1,15 @@
 ---
 # site.yml needs infrastructurebuilder.csis_spack, to set Spack up and for the
 # Spack environment (stages 10 and 11). It comes from Ansible Galaxy, where it
-# has been published since 2026-11-19, within the 0.0 series. node-image.yml
+# has been published since 2026-11-19, within the 0.0 series, from 0.0.3: the
+# first release whose from_mirrors step answers Spack's "Trust key? [y/N]" for
+# the keys mirrors publish (Cloud-Sandbox's spec 009). An install against this
+# floor replaces an installed 0.0.2; against ">=0.0.1" it would keep it, and
+# the from_mirrors steps would stop at the prompt. node-image.yml
 # needs amazon.aws, held to the series that supports the ansible-core 2.16 that
 # RHEL 10 ships.
 collections:
   - name: infrastructurebuilder.csis_spack
-    version: ">=0.0.1,<0.1.0"
+    version: ">=0.0.3,<0.1.0"
   - name: amazon.aws
     version: ">=9.0.0,<10.0.0"

@@ -191,14 +191,10 @@ def setup_lists(role: str) -> list[dict]:
 
 
 # The scripts' "spack buildcache keys --install --trust", as the lists carry it
-# out since spec 002: the command itself, with --yes-to-all. The collection's
-# from_mirrors step does not answer Spack's "Trust key? [y/N]", which stopped
-# spec 002's second build once the cache published its key.
-TRUST_MIRROR_KEYS = {
-    "kind": "command",
-    "args": ["buildcache", "keys", "--install", "--trust", "--yes-to-all"],
-    "changes": "never",
-}
+# out: the collection's from_mirrors step. Its 0.0.3 answers Spack's "Trust
+# key? [y/N]" (spec 009); spec 002 had to run the command itself, with
+# --yes-to-all, while 0.0.2 did not.
+TRUST_MIRROR_KEYS = {"kind": "gpg_key", "from_mirrors": True}
 
 
 def as_steps(commands: list[str]) -> list[dict]:
@@ -293,8 +289,8 @@ def test_the_intel_list_is_the_scripts_commands_in_order(values: dict, script: d
     # externals, then five "config add", then "mirror add" (not carried, see
     # tests/not_carried.yml), then "buildcache keys".
     theirs = as_steps(spack_commands(lines))
-    assert [step["kind"] for step in theirs] == ["detect", "config", "mirror", "command"]
-    assert [step["kind"] for step in ours] == ["environment", "detect", "config", "command"]
+    assert [step["kind"] for step in theirs] == ["detect", "config", "mirror", "gpg_key"]
+    assert [step["kind"] for step in ours] == ["environment", "detect", "config", "gpg_key"]
 
     environment, detect, config, keys = ours
     loads = [line for line in lines if line.startswith(("module ", ". /usr/share/Modules"))]
@@ -494,8 +490,9 @@ def test_a_signed_push_gives_the_key_and_not_unsigned() -> None:
     assert args["unsigned"].startswith("{{ true if ") and args["unsigned"].endswith(" else omit }}")
 
 
-def test_no_step_trusts_mirror_keys_through_the_collections_from_mirrors() -> None:
-    # It cannot answer Spack's "Trust key? [y/N]" (spec 002); see TRUST_MIRROR_KEYS.
+def test_the_mirrors_keys_are_trusted_by_the_collections_own_step() -> None:
+    # Spec 009, SC-001: three steps, the collection's from_mirrors, and none
+    # running "buildcache keys" through the generic command step.
     steps = [
         step
         for role in ("spack", "intel_oneapi")
@@ -503,11 +500,12 @@ def test_no_step_trusts_mirror_keys_through_the_collections_from_mirrors() -> No
         for step in task["vars"]["spack_setup"]
     ]
     assert steps
-    assert not [step for step in steps if step.get("from_mirrors")]
-    assert [step for step in steps if step["kind"] == "command"] == [TRUST_MIRROR_KEYS] * 3
+    assert [step for step in steps if step.get("from_mirrors")] == [TRUST_MIRROR_KEYS] * 3
+    commands = [step for step in steps if step["kind"] == "command"]
+    assert not [step for step in commands if step["args"][:2] == ["buildcache", "keys"]]
 
 
-def test_as_steps_carries_out_buildcache_keys_with_yes_to_all() -> None:
+def test_as_steps_carries_out_buildcache_keys_as_from_mirrors() -> None:
     assert as_steps(["spack buildcache keys --install --trust"]) == [TRUST_MIRROR_KEYS]
 
 
@@ -524,3 +522,13 @@ def test_the_defaults_install_from_the_rhel10_cache(values: dict) -> None:
     script = dict(re.findall(r"^export (\w+)='?([^'\n]*)'?$", ENVIRONMENT.read_text(), re.MULTILINE))
     assert script["SPACK_CACHEONLY"] == "-1"
     assert script["SPACK_MIRROR"] == "s3://ioos-cloud-sandbox/public/spack/mirror"
+
+
+def test_the_collection_is_at_least_the_one_that_answers_spacks_confirmation() -> None:
+    # Spec 009: 0.0.3 is the first release whose from_mirrors answers Spack's
+    # "Trust key? [y/N]". The range alone (>=0.0.1) leaves an installed 0.0.2
+    # in place, so the floor is 0.0.3; amazon.aws stays as it was.
+    text = (UNIT / "requirements.yml").read_text()
+    wanted = {entry["name"]: entry["version"] for entry in yaml.safe_load(text)["collections"]}
+    assert wanted == {"infrastructurebuilder.csis_spack": ">=0.0.3,<0.1.0", "amazon.aws": ">=9.0.0,<10.0.0"}
+    assert "0.0.3" in text.split("collections:")[0], "the comment says why the floor is 0.0.3"
