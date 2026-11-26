@@ -1,9 +1,11 @@
 # Proving the playbooks on a real head node
 
-*Version 3, 2026-11-23. Version 2 was written for Cloud-Sandbox's spec 001 and
-run once that day; version 3 carries what the run found into the boxes it
-changed (those marked `v3`). The run's findings are in spec 001's outcome.
-Stop at any result the page does not predict.*
+*Version 4, 2026-11-26. Version 2 was written for Cloud-Sandbox's spec 001 and
+run once on 2026-11-23; version 3 carries what that run found into the boxes
+it changed (those marked `v3`), and the run's findings are in spec 001's
+outcome. Version 4 (spec 009) has box B3 install the playbooks' collections
+before it applies them again (`v4`). Stop at any result the page does not
+predict.*
 
 The container test proves the playbooks on AlmaLinux 10. It cannot prove the
 two kernel drivers, the Intel compilers, the Spack build, the tuning profile,
@@ -243,11 +245,16 @@ It must print `Plan: 5 to add, 0 to change, 5 to destroy.`, then
 ### B3. Apply it again (the head node)
 
 About ten minutes (six on the first run); it runs on even if the session
-closes.
+closes. The collections are installed first: a node whose checkout was moved
+to a newer commit keeps the collections its first boot installed, and
+`requirements.yml`'s floor replaces one that is too old (spec 009: with
+`infrastructurebuilder.csis_spack` 0.0.2, the steps that trust the mirrors'
+keys stop at Spack's "Trust key? [y/N]").
 
 ```sh
-# B3 -- box 1 of 1 -- v2
+# B3 -- box 1 of 1 -- v4
 cd /opt/sandbox-provisioning && export ANSIBLE_CONFIG=/opt/sandbox-provisioning/ansible.cfg
+sudo -E ansible-galaxy collection install -r requirements.yml | tail -2
 sudo touch /root/second-apply.started
 sudo -E nohup ansible-playbook -i inventories/local/hosts.yml site.yml \
   --extra-vars "spack_site_mirror=true sandbox_user=ec2-user project_tag=CSIS-Live-Proof" > /tmp/site-second.log 2>&1 &

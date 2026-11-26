@@ -50,8 +50,9 @@ def test_every_box_is_numbered_and_versioned_within_its_step() -> None:
         numbers = [int(match["n"]) for match in parsed if match]
         assert numbers == list(range(1, len(numbers) + 1)), (step, numbers)
         assert {int(match["m"]) for match in parsed if match} == {len(numbers)}, step
-        # Version 2 as written; version 3 where the first run (2026-11-23) changed a box.
-        assert {match["v"] for match in parsed if match} <= {"2", "3"}, step
+        # Version 2 as written; version 3 where the first run (2026-11-23) changed a
+        # box; version 4 where spec 009 changed one.
+        assert {match["v"] for match in parsed if match} <= {"2", "3", "4"}, step
 
 
 def test_every_decision_states_its_default() -> None:
@@ -126,3 +127,18 @@ def test_the_networks_comparison_ignores_order_and_free_address_counts() -> None
 def test_no_text_names_a_box_the_page_does_not_have() -> None:
     named = set(re.findall(r"\bbox(?:es)? ([A-E]\d)\b", PAGE.read_text()))
     assert named <= {step for step, _, _ in steps()}, named - {step for step, _, _ in steps()}
+
+
+def test_applying_again_installs_the_collections_first() -> None:
+    # Spec 009: a node built before it has 0.0.2 under its checkout; with it the
+    # from_mirrors steps stop at Spack's prompt. requirements.yml's floor
+    # replaces it, if it is installed before site.yml.
+    body = box("B3", 1)
+    install = body.index("ansible-galaxy collection install -r requirements.yml")
+    assert install < body.index("site.yml")
+
+
+def test_the_pages_version_is_its_newest_boxes() -> None:
+    first_lines = re.findall(r"^# [A-E]\d -- box \d+ of \d+ -- v(\d+)$", PAGE.read_text(), re.MULTILINE)
+    versions = {int(v) for v in first_lines}
+    assert f"*Version {max(versions)}," in PAGE.read_text()
