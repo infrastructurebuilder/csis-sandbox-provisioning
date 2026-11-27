@@ -131,3 +131,22 @@ def test_the_playbook_stops_before_cloning_when_given_a_branch(tmp_path: Path) -
     assert done.returncode != 0
     assert "ufs_stack_version" in done.stdout
     assert not clone.exists()
+
+
+def test_the_sandboxs_oneapi_replaces_the_forks_site_entries_without_modules() -> None:
+    # Spec 004's T019: Spack read the fork's site's Intel modules with "module
+    # show" and stopped at a byte that is not UTF-8. The sandbox's oneAPI is
+    # declared in the environment's site scope, where those entries are, and
+    # no external of the playbook names a module.
+    steps = play()["vars"]["ufs_stack_setup"]
+    site_scope = "{{ ufs_stack_env_site_scope }}"
+    in_site = [s for s in steps if s["kind"] == "config" and s.get("scope") == site_scope]
+    assert len(in_site) == 1
+    declared = play()["vars"]["ufs_stack_intel_externals"]
+    assert set(declared) == {"intel-oneapi-compilers", "intel-oneapi-compilers-classic", "intel-oneapi-tbb"}
+    assert "ufs_stack_intel_externals" in in_site[0]["settings"]["packages"]
+    assert "intel_oneapi_spack_packages" in in_site[0]["settings"]["packages"]
+    for package in declared.values():
+        assert package["buildable"] is False
+        for external in package["externals"]:
+            assert "modules" not in external
