@@ -421,6 +421,13 @@ sys.exit(\"Intel externals with modules: \" + \", \".join(bad) if bad else 0)
                         exit 1
                     fi
                     echo "   no Intel external of the environment names a module"
+                    # Spec 004's T019: OpenSSL's build needs Perl's FindBin and
+                    # IPC::Cmd, which RHEL 10's perl-interpreter lacks.
+                    if ! in_container sudo -u ec2-user perl -MFindBin -MIPC::Cmd -e 1; then
+                        echo "FAILED: the system's Perl lacks FindBin or IPC::Cmd"
+                        exit 1
+                    fi
+                    echo "   the system's Perl has FindBin and IPC::Cmd"
                     etc_spack >"$logs/etc-spack.after"
                     if ! diff "$logs/etc-spack.before" "$logs/etc-spack.after"; then
                         echo "FAILED: ufs-stack.yml changed /etc/spack"

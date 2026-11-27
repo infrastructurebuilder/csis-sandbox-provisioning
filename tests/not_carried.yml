@@ -174,3 +174,11 @@
     The environment's module files switched from Tcl to Lmod. The sandbox's
     Environment Modules reads Tcl, and the script refreshed Tcl modules
     anyway (L458), which ufs-stack.yml does.
+
+- file: funcs-setup-instance.sh
+  lines: L317-L320
+  why: >-
+    Lmod installed, from EPEL on RHEL 10, and made the module system of every
+    login. The sandbox's module system is Environment Modules, which
+    spack-stack's Tcl modules and UFS Coastal's Tcl module file are for; a
+    switch would change every user's (spec 004).

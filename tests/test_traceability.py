@@ -147,7 +147,7 @@ def unaccounted(script: Path, numbers: range) -> list[str]:
 
 CALLED = [function for names in ROLE_FUNCTIONS.values() for function in names]
 # Not called by setup-instance.sh, and replaced by ufs-stack.yml (spec 004).
-UFS_STACK_FUNCTIONS = ["setup_spack-stack", "build_spack-stack-environment"]
+UFS_STACK_FUNCTIONS = ["install_spack-stack_prereqs", "setup_spack-stack", "build_spack-stack-environment"]
 
 
 # Python lines that do nothing a task would have to do: structure, messages,
