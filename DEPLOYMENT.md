@@ -110,6 +110,11 @@ Two playbooks are applied by hand when a site wants them:
   settings.
 - [jupyterhub.yml](jupyterhub.yml) installs JupyterHub behind nginx.
   [docs/JUPYTERHUB.md](docs/JUPYTERHUB.md) is about configuring it.
+- [ufs-stack.yml](ufs-stack.yml) builds spack-stack for UFS Coastal, with
+  its own Spack, in `/save/environments/spack-stack-<commit>`. The first
+  apply compiles the whole environment, which takes hours: run it in
+  `tmux`. UFS Coastal's `setup.sh` (`csis-model-ufscoastal`) then builds
+  the model against it.
 
 Run `node-image.yml` again afterwards if the compute nodes should have
 these changes too.
