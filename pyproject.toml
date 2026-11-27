@@ -40,3 +40,5 @@ pythonVersion = "3.12"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["slow: needs the network (just full-test runs them; just test does not)"]
+addopts = "-m 'not slow'"

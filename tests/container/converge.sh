@@ -7,6 +7,8 @@
 #   KEEP=1 tests/container/converge.sh     leave the container for a look
 #   PLAYS="site users" ROLES=sandbox_paths tests/container/converge.sh
 #                                          a part: some plays, some roles of site.yml
+#   UFS_STACK=0 tests/container/converge.sh
+#                                          without ufs-stack.yml (spec 004; about 40 minutes)
 #
 # The plays are site.yml (with the roles below), users.yml (with the users of
 # tests/container/users.yml) and jupyterhub.yml, in that order.
@@ -349,6 +351,64 @@ case " $plays " in
                 echo "   the mirrors' keys trusted with no prompt; a second apply changed nothing"
                 # shellcheck disable=SC2016 # expanded by the shell in the container
                 in_container sudo -u ec2-user bash -c '"$(ls /save/environments/spack.*/bin/spack)" mirror remove --scope site s3-mirror' >/dev/null
+                ;;
+        esac
+        ;;
+esac
+
+# Cloud-Sandbox's spec 004: ufs-stack.yml, after site.yml, with
+# ufs_stack_install false: spack-stack cloned at its commit (about 40 minutes,
+# mostly its submodules), its environment created and concretized with the
+# sandbox's oneAPI, and not built. Applied twice and previewed, as site.yml is;
+# /etc/spack, which the sandbox's own Spack reads, must be byte for byte as
+# before (FR-004). UFS_STACK=0 leaves it out.
+case " $plays " in
+    *" site "*)
+        case ",$roles," in
+            *",intel_oneapi,"*)
+                if [ "${UFS_STACK:-1}" = 1 ]; then
+                    echo "== spack-stack for UFS Coastal, concretized and not built (spec 004)"
+                    # A container has no /etc/spack (the sandbox's Spack has no
+                    # system scope there); that it is still absent is the check.
+                    etc_spack() { in_container bash -c 'cd /etc && if [ -e spack ]; then find spack -exec ls -ld --time-style=full-iso {} +; find spack -type f -exec sha256sum {} +; else echo "no /etc/spack"; fi' | sort; }
+                    etc_spack >"$logs/etc-spack.before"
+                    ufs_stack() {
+                        # shellcheck disable=SC2016 # $@ is expanded by the shell in the container
+                        in_container bash -c 'cd /opt/sandbox-provisioning && ANSIBLE_CONFIG=/opt/sandbox-provisioning/ansible.cfg exec ansible-playbook --inventory inventories/local/hosts.yml --extra-vars @/srv/provisioning/tests/container/vars.yml --extra-vars "{\"ufs_stack_install\": false}" "$@" ufs-stack.yml' _ "$@"
+                    }
+                    for run in first second check; do
+                        extra=()
+                        [ "$run" = check ] && extra=(--check)
+                        if ! ufs_stack "${extra[@]}" >"$logs/ufs-stack.$run.log" 2>&1; then
+                            tail -60 "$logs/ufs-stack.$run.log"
+                            echo "FAILED: the $run apply of ufs-stack.yml did not finish; full log in $logs/ufs-stack.$run.log"
+                            exit 1
+                        fi
+                        echo "   ufs-stack.yml ($run): $(recap "$logs/ufs-stack.$run.log")"
+                        if [ "$run" != first ] && [ "$(count "$logs/ufs-stack.$run.log" changed)" != 0 ]; then
+                            grep -B1 -A6 '^changed:' "$logs/ufs-stack.$run.log" | head -60
+                            echo "FAILED: the $run apply of ufs-stack.yml would change something"
+                            exit 1
+                        fi
+                    done
+                    # The concretization is the environment's spack.lock, with
+                    # the model's environment and the sandbox's oneAPI in it.
+                    # shellcheck disable=SC2016 # expanded by the shell in the container
+                    if ! in_container bash -c '
+                        lock=$(ls /save/environments/spack-stack-*/envs/aws-ioossb-rhel10/spack.lock)
+                        grep -q "\"ufs-weather-model-env\"" "$lock" && grep -q "\"sp\"" "$lock" && grep -q "\"intel-oneapi-compilers\"" "$lock"
+                    '; then
+                        echo "FAILED: the environment's spack.lock lacks ufs-weather-model-env, sp or oneAPI"
+                        exit 1
+                    fi
+                    echo "   the environment concretized: ufs-weather-model-env and sp, with oneAPI"
+                    etc_spack >"$logs/etc-spack.after"
+                    if ! diff "$logs/etc-spack.before" "$logs/etc-spack.after"; then
+                        echo "FAILED: ufs-stack.yml changed /etc/spack"
+                        exit 1
+                    fi
+                    echo "   /etc/spack is as it was before ufs-stack.yml"
+                fi
                 ;;
         esac
         ;;

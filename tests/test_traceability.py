@@ -33,6 +33,9 @@ PLAYBOOKS = [
     UNIT / "users.yml",
     UNIT / "jupyterhub.yml",
     UNIT / "push-build-cache.yml",
+    # Cloud-Sandbox's spec 004: spack-stack for UFS Coastal, from the two
+    # functions of funcs-setup-instance.sh that setup-instance.sh never called.
+    UNIT / "ufs-stack.yml",
 ]
 TASK_FILES = sorted(UNIT.glob("roles/*/tasks/*.yml"))
 
@@ -94,7 +97,7 @@ def test_there_are_tasks_to_check() -> None:
 
 
 def test_the_steps_of_the_setup_lists_are_checked_like_tasks() -> None:
-    steps = [claim for claim in CLAIMS if claim.name.startswith("kind: ")]
+    steps = [claim for claim in CLAIMS if claim.name.startswith("kind: ") and claim.source in TASK_FILES]
     by_role: dict[str, int] = {}
     for claim in steps:
         by_role[claim.source.parent.parent.name] = by_role.get(claim.source.parent.parent.name, 0) + 1
@@ -143,6 +146,8 @@ def unaccounted(script: Path, numbers: range) -> list[str]:
 
 
 CALLED = [function for names in ROLE_FUNCTIONS.values() for function in names]
+# Not called by setup-instance.sh, and replaced by ufs-stack.yml (spec 004).
+UFS_STACK_FUNCTIONS = ["setup_spack-stack", "build_spack-stack-environment"]
 
 
 # Python lines that do nothing a task would have to do: structure, messages,
@@ -180,7 +185,7 @@ def test_every_line_of_an_operator_script_is_replaced_or_explained(name: str) ->
     assert [f"L{n}: {lines[n].strip()}" for n in sorted(acting - known)] == []
 
 
-@pytest.mark.parametrize("function", CALLED)
+@pytest.mark.parametrize("function", [*CALLED, *UFS_STACK_FUNCTIONS])
 def test_every_line_of_a_function_is_replaced_or_explained(function: str) -> None:
     assert unaccounted(FUNCS, functions()[function]) == []
 
