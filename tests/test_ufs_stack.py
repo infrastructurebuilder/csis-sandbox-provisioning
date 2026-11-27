@@ -150,3 +150,20 @@ def test_the_sandboxs_oneapi_replaces_the_forks_site_entries_without_modules() -
         assert package["buildable"] is False
         for external in package["externals"]:
             assert "modules" not in external
+
+
+def test_the_system_packages_are_the_scripts_and_perl_whole() -> None:
+    # install_spack-stack_prereqs (L309-L314), which add-ufs-setup.sh called
+    # before the other two; and Perl whole, since RHEL 10's perl-interpreter
+    # lacks FindBin, which OpenSSL's build needs (spec 004's T019). Not Lmod.
+    packages = play()["vars"]["ufs_stack_system_packages"]
+    assert packages == [
+        "binutils-devel",
+        "git-lfs",
+        "bash-completion",
+        "xorg-x11-xauth",
+        "perl-IPC-Cmd",
+        "gettext-devel",
+        "perl",
+    ]
+    assert not any("lmod" in line.lower() and "dnf" in line for line in code_lines())

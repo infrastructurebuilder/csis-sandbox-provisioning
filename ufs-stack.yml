@@ -8,8 +8,10 @@
 #
 # Run by hand on a head node that site.yml has built, and never by it. It
 # replaces two functions of legacy/funcs-setup-instance.sh that
-# setup-instance.sh never called: setup_spack-stack (L340) and
-# build_spack-stack-environment (L428). What differs from them, on purpose:
+# setup-instance.sh never called: install_spack-stack_prereqs (L303),
+# setup_spack-stack (L340) and build_spack-stack-environment (L428), which
+# csis-sandbox-ops' add-ufs-setup.sh called in that order. What differs from
+# them, on purpose:
 # - A commit (or a tag) of spack-stack, never a branch: the script cloned the
 #   branch aws-ioossb, whatever it held that day.
 # - The externals and compilers are written to the environment's own scope.
@@ -20,7 +22,11 @@
 # - No build cache of spack-stack's yet: the script's gpg and mirror lines are
 #   not carried (FR-005; tests/not_carried.yml).
 # - The modules are Tcl, which the sandbox's Environment Modules reads. The
-#   script switched the environment's files to Lmod and then refreshed Tcl.
+#   script switched the environment's files to Lmod and then refreshed Tcl,
+#   and installed Lmod and made it every login's module system; neither is
+#   carried.
+# - Perl whole: RHEL 10's perl-interpreter leaves out modules that OpenSSL's
+#   build needs (FindBin), which RHEL 8's had (spec 004's T019).
 # - The sandbox's oneAPI is declared in the environment's site scope, in place
 #   of the fork's site's entries: those name a later MPI (2021.16), and load
 #   Intel's modules, whose files Spack cannot read (spec 004's T019).
@@ -59,6 +65,16 @@
       - sp@2.5.0
     # false stops after concretizing (the container test).
     ufs_stack_install: true
+    # The packages spack-stack's build needs from the system: the script's
+    # (L309-L314), and Perl whole (see above).
+    ufs_stack_system_packages:
+      - binutils-devel
+      - git-lfs
+      - bash-completion
+      - xorg-x11-xauth
+      - perl-IPC-Cmd
+      - gettext-devel
+      - perl
     ufs_stack_spack: "{{ ufs_stack_dir }}/spack/bin/spack"
     # The environment's own configuration scope, by Spack's name for it.
     ufs_stack_env_scope: "env:{{ ufs_stack_env_dir }}"
@@ -264,6 +280,15 @@
       ansible.builtin.setup:
         gather_subset: ["!all", "!min", hardware]
       become: false
+
+    # Replaces funcs-setup-instance.sh L309-L314
+    # With Perl whole besides (ufs_stack_system_packages); as root.
+    - name: Install the packages spack-stack's build needs
+      ansible.builtin.dnf:
+        name: "{{ ufs_stack_system_packages }}"
+        state: present
+      become: true
+      become_user: root
 
     # Replaces funcs-setup-instance.sh L348 L351-L352
     # The directory is named by the version, so a different version is a new
