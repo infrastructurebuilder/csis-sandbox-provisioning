@@ -66,7 +66,11 @@
     # false stops after concretizing (the container test).
     ufs_stack_install: true
     # The packages spack-stack's build needs from the system: the script's
-    # (L309-L314), and Perl whole (see above).
+    # (L309-L314), Perl whole (see above), and zlib's static library. Spack
+    # finds the system's zlib (zlib-ng-compat on RHEL 10), whose CMake files
+    # name its static library too, and CMake stops when that file is not
+    # there (HDF5, spec 004's T019); the library is in CRB, which base_system
+    # enables.
     ufs_stack_system_packages:
       - binutils-devel
       - git-lfs
@@ -75,6 +79,7 @@
       - perl-IPC-Cmd
       - gettext-devel
       - perl
+      - zlib-ng-compat-static
     ufs_stack_spack: "{{ ufs_stack_dir }}/spack/bin/spack"
     # The environment's own configuration scope, by Spack's name for it.
     ufs_stack_env_scope: "env:{{ ufs_stack_env_dir }}"
