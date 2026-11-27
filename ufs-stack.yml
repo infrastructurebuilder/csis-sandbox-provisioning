@@ -1,0 +1,294 @@
+---
+# Build spack-stack for UFS Coastal on this head node (Cloud-Sandbox's spec 004):
+# its own Spack, an environment with the model's dependencies built with the
+# sandbox's oneAPI, and its meta-modules.
+#
+#   ansible-playbook -i inventories/local/hosts.yml ufs-stack.yml --check
+#   ansible-playbook -i inventories/local/hosts.yml ufs-stack.yml
+#
+# Run by hand on a head node that site.yml has built, and never by it. It
+# replaces two functions of legacy/funcs-setup-instance.sh that
+# setup-instance.sh never called: setup_spack-stack (L340) and
+# build_spack-stack-environment (L428). What differs from them, on purpose:
+# - A commit (or a tag) of spack-stack, never a branch: the script cloned the
+#   branch aws-ioossb, whatever it held that day.
+# - The externals and compilers are written to the environment's own scope.
+#   The script wrote them to the system scope with the system scope pointed at
+#   the environment's site/ directory; /etc/spack is the sandbox's own Spack's
+#   too and is never written to (FR-004).
+# - No GCC toolset: RHEL 10's own GCC 14 (FR-002).
+# - No build cache of spack-stack's yet: the script's gpg and mirror lines are
+#   not carried (FR-005; tests/not_carried.yml).
+# - The modules are Tcl, which the sandbox's Environment Modules reads. The
+#   script switched the environment's files to Lmod and then refreshed Tcl.
+# - The sandbox's oneAPI MPI is declared in the environment: the fork's site
+#   names a later one (2021.16), through a module the sandbox does not have.
+#
+# Check mode lists what would change; before the first apply, with nothing
+# cloned yet, it says so and stops.
+
+- name: Build spack-stack for UFS Coastal
+  hosts: sandbox_head
+  become: true
+  become_user: "{{ sandbox_user }}"
+  gather_facts: false
+
+  # The sandbox's oneAPI as its own Spack is told about it, declared again in
+  # the environment (intel_oneapi_spack_packages).
+  vars_files:
+    - roles/intel_oneapi/defaults/main.yml
+
+  vars:
+    # Which spack-stack (FR-001): the fork, at the commit the operator named
+    # on 2026-11-26. JCSDA's latest release, 2.1.1, has no RHEL 10 site and
+    # names none of UFS Coastal's pins; the fork's aws-rhel10 site and
+    # ioos-ufscoastal template concretized in the container that day
+    # (Cloud-Sandbox's specs/004-spack-stack-ufs-coastal, research R1, T004).
+    ufs_stack_repo: https://github.com/asascience-open/spack-stack.git
+    ufs_stack_version: 406b090aa4828fb7be840eea33c83963d88ac84e
+    ufs_stack_dir: "/save/environments/spack-stack-{{ ufs_stack_version }}"
+    ufs_stack_env_name: aws-ioossb-rhel10
+    ufs_stack_env_dir: "{{ ufs_stack_dir }}/envs/{{ ufs_stack_env_name }}"
+    ufs_stack_site: aws-rhel10
+    ufs_stack_template: ioos-ufscoastal
+    ufs_stack_compiler: oneapi
+    # Specs added to the template's: sp, which the model loads and the
+    # template leaves out (the script's L442-L444).
+    ufs_stack_extra_specs:
+      - sp@2.5.0
+    # false stops after concretizing (the container test).
+    ufs_stack_install: true
+    ufs_stack_spack: "{{ ufs_stack_dir }}/spack/bin/spack"
+    # The environment's own configuration scope, by Spack's name for it.
+    ufs_stack_env_scope: "env:{{ ufs_stack_env_dir }}"
+    # What every step runs in: spack-stack's setup.sh (which turns Spack's
+    # user and system scopes off) and the sandbox's oneAPI modules.
+    ufs_stack_shell: |
+      {{ sandbox_modules_init }}
+      set -eo pipefail
+      {{ sandbox_load_intel_modules }}
+      source {{ ufs_stack_dir }}/setup.sh >/dev/null
+    ufs_stack_activate: |
+      {{ ufs_stack_shell }}
+      spack env activate {{ ufs_stack_env_dir }}
+
+    # Up to the environment's concretization: a list of steps for the setup
+    # role of the infrastructurebuilder.csis_spack collection. Each step names
+    # the lines it replaces.
+    ufs_stack_setup:
+      # Replaces funcs-setup-instance.sh L345 L355-L356 L375
+      # The script sourced Intel's setvars.sh; the sandbox's modules give the
+      # same compilers, as the intel_oneapi role does.
+      - kind: environment
+        name: stack
+        shell: "{{ ufs_stack_shell }}"
+      # Replaces funcs-setup-instance.sh L359
+      # Into spack-stack's own site scope, inside the clone; with setup.sh's
+      # settings Spack has no system scope to write to.
+      - kind: config
+        scope: site
+        environment: stack
+        settings:
+          config:
+            install_tree:
+              padded_length: 90
+      # Replaces funcs-setup-instance.sh L383
+      - kind: command
+        environment: stack
+        args:
+          - stack
+          - create
+          - env
+          - --dir
+          - "{{ ufs_stack_dir }}/envs"
+          - --site
+          - "{{ ufs_stack_site }}"
+          - --template
+          - "{{ ufs_stack_template }}"
+          - --name
+          - "{{ ufs_stack_env_name }}"
+          - --compiler
+          - "{{ ufs_stack_compiler }}"
+        changes: creates
+        creates: "{{ ufs_stack_env_dir }}/spack.yaml"
+      # Replaces funcs-setup-instance.sh L385-L386
+      - kind: environment
+        name: activated
+        shell: "{{ ufs_stack_activate }}"
+      # Replaces funcs-setup-instance.sh L393-L396
+      - kind: detect
+        environment: activated
+        scope: "{{ ufs_stack_env_scope }}"
+        externals: true
+        exclude: [bison, meson, curl, openssl, openssh, python]
+      # Replaces funcs-setup-instance.sh L398-L399 L402
+      # texlive is looked for, as the script did; it is only for documents,
+      # and need not be there.
+      - kind: detect
+        environment: activated
+        scope: "{{ ufs_stack_env_scope }}"
+        externals: [grep, wget, texlive]
+      # Replaces funcs-setup-instance.sh L376-L378 L405
+      # The script warned when oneAPI was missing and went on; here that is a
+      # failure.
+      - kind: detect
+        environment: activated
+        scope: "{{ ufs_stack_env_scope }}"
+        compilers: true
+        require:
+          - "intel-oneapi-compilers@{{ oneapi_version }}"
+          - "gcc@{{ gcc_major }}"
+      # New: the sandbox's oneAPI MKL and MPI, as its own Spack has them. The
+      # fork's site names intel-oneapi-mpi 2021.16 through the module
+      # intel/mpi/2021.16, which the sandbox does not have.
+      - kind: config
+        environment: activated
+        scope: "{{ ufs_stack_env_scope }}"
+        settings:
+          packages: "{{ intel_oneapi_spack_packages }}"
+      # Replaces funcs-setup-instance.sh L412-L414
+      # The script's MPI, 2021.13.0, is the sandbox's intel_mpi_version.
+      - kind: config
+        environment: activated
+        scope: "{{ ufs_stack_env_scope }}"
+        settings:
+          packages:
+            mpi:
+              require: ["intel-oneapi-mpi@{{ intel_mpi_version }}"]
+            all:
+              target: [x86_64_v3]
+          concretizer:
+            targets:
+              granularity: generic
+      # Replaces funcs-setup-instance.sh L442-L444
+      # "spack add" of a spec the environment lists already does nothing; when
+      # it adds one, the concretization that follows reports the change.
+      - kind: command
+        environment: activated
+        env: "{{ ufs_stack_env_dir }}"
+        args: "{{ ['add'] + ufs_stack_extra_specs }}"
+        changes: never
+
+    # After the install: the meta-modules.
+    ufs_stack_after_install:
+      # Replaces funcs-setup-instance.sh L433 L435 L439-L440
+      - kind: environment
+        name: activated
+        shell: "{{ ufs_stack_activate }}"
+      # Replaces funcs-setup-instance.sh L463
+      # spack-stack puts them in the module root's Core directory, which it
+      # makes first.
+      - kind: command
+        environment: activated
+        env: "{{ ufs_stack_env_dir }}"
+        args: [stack, setup-meta-modules]
+        changes: creates
+        creates: "{{ ufs_stack_env_dir }}/modules/Core"
+
+  tasks:
+    # New: the script cloned a branch (L347). A branch moves, so the version
+    # must be a commit or a tag, and this is checked before anything is
+    # cloned. Needs no privileges; tagged so the tests can run it alone.
+    - name: List the branches and tags of spack-stack's repository
+      ansible.builtin.command:
+        # The git module cannot list a remote's refs.
+        cmd: "git ls-remote --heads --tags {{ ufs_stack_repo }}"  # noqa: command-instead-of-module
+      register: ufs_stack_refs
+      changed_when: false
+      check_mode: false
+      become: false
+      tags: [ufs_stack_ref]
+
+    # New: the refusal, naming the variable.
+    - name: Stop unless the version is a commit or a tag
+      ansible.builtin.assert:
+        that:
+          - ("refs/heads/" ~ ufs_stack_version) not in ufs_stack_refs_found
+          - >-
+            ufs_stack_version is match('^[0-9a-f]{40}$')
+            or ("refs/tags/" ~ ufs_stack_version) in ufs_stack_refs_found
+        fail_msg: >-
+          ufs_stack_version is {{ ufs_stack_version }}: give a tag of
+          {{ ufs_stack_repo }} or a commit, all 40 characters of it, never a
+          branch (Cloud-Sandbox's spec 004, FR-001).
+        quiet: true
+      vars:
+        ufs_stack_refs_found: "{{ ufs_stack_refs.stdout_lines | map('split', '\t') | map('last') | list }}"
+      become: false
+      tags: [ufs_stack_ref]
+
+    # New: spack_jobs (group_vars/all.yml) counts the processors. Gathered
+    # without privileges, after the check of the version.
+    - name: Count the processors
+      ansible.builtin.setup:
+        gather_subset: ["!all", "!min", hardware]
+      become: false
+
+    # Replaces funcs-setup-instance.sh L348 L351-L352
+    # The directory is named by the version, so a different version is a new
+    # clone and an existing one is never moved. update: false, because
+    # spack-stack's setup.sh rewrites two files of its Spack each time it is
+    # sourced, which the module would otherwise take for local changes.
+    - name: Clone spack-stack at the version, with its submodules
+      ansible.builtin.git:
+        repo: "{{ ufs_stack_repo }}"
+        dest: "{{ ufs_stack_dir }}"
+        version: "{{ ufs_stack_version }}"
+        recursive: true
+        update: false
+
+    # New: check mode clones nothing, so before the first apply there is
+    # nothing to preview the steps against.
+    - name: Look for the environment
+      ansible.builtin.stat:
+        path: "{{ ufs_stack_env_dir }}/spack.yaml"
+      register: ufs_stack_env_file
+
+    # New: what the preview cannot show, said instead of failing.
+    - name: Stop the preview here when there is nothing to preview yet
+      when: ansible_check_mode and not ufs_stack_env_file.stat.exists
+      block:
+        # New: the message.
+        - name: Say what the first apply would do
+          ansible.builtin.debug:
+            msg: >-
+              {{ ufs_stack_env_dir }} does not exist yet: the first apply clones
+              spack-stack at {{ ufs_stack_version }}, creates the environment,
+              concretizes {{ 'and installs it' if ufs_stack_install | bool else 'it' }}.
+
+        # New: nothing after this can be previewed.
+        - name: End the preview
+          ansible.builtin.meta: end_host
+
+    # New: the script's lines up to the concretization, as a list of steps
+    # for the setup role of the infrastructurebuilder.csis_spack collection.
+    - name: Create the environment and tell its Spack about the node
+      ansible.builtin.include_role:
+        name: infrastructurebuilder.csis_spack.setup
+      vars:
+        spack_setup_executable: "{{ ufs_stack_spack }}"
+        spack_setup: "{{ ufs_stack_setup }}"
+
+    # Replaces funcs-setup-instance.sh L446 L448 L455 L458
+    # The environment the steps captured, activated, is what Spack runs in.
+    # Concretized fresh, as the script did; installed only when it is to be.
+    - name: Concretize and install the environment, and refresh its modules
+      infrastructurebuilder.csis_spack.spack_env:
+        spack: "{{ ufs_stack_spack }}"
+        path: "{{ ufs_stack_env_dir }}"
+        state: "{{ 'installed' if ufs_stack_install | bool else 'concretized' }}"
+        fresh: true
+        install_args: [--fail-fast, --jobs, "{{ spack_jobs }}"]
+        modules: "{{ ['tcl'] if ufs_stack_install | bool else [] }}"
+        refresh_modules: when_needed
+      environment: >-
+        {{ (spack_setup_results | selectattr('kind', 'equalto', 'environment') | last).result.environment }}
+
+    # New: the meta-modules need what was installed.
+    - name: Set up the meta-modules
+      ansible.builtin.include_role:
+        name: infrastructurebuilder.csis_spack.setup
+      vars:
+        spack_setup_executable: "{{ ufs_stack_spack }}"
+        spack_setup: "{{ ufs_stack_after_install }}"
+      when: ufs_stack_install | bool

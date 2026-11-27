@@ -143,3 +143,34 @@
   why: >-
     Lists Spack's keys on the terminal. The step that trusts the key reports
     the fingerprint it trusted.
+
+# Cloud-Sandbox's spec 004: the lines of setup_spack-stack and
+# build_spack-stack-environment that ufs-stack.yml does not carry.
+
+- file: funcs-setup-instance.sh
+  lines: L361-L364 L368 L371-L372
+  why: >-
+    spack-stack's own build cache: its key and its mirror. Spec 004 builds no
+    cache for spack-stack, so its Spack is given none (FR-005); a later spec
+    on that cache replaces these, with csis-sandbox-ops'
+    spack-stack-update-mirror.sh and spack-stack-mirror-create.sh.
+
+- file: funcs-setup-instance.sh
+  lines: L380 L437
+  why: >-
+    A GCC toolset. The environment is built on RHEL 10's own GCC 14, and none
+    is installed (spec 004, FR-002).
+
+- file: funcs-setup-instance.sh
+  lines: L390-L391 L409-L410
+  why: >-
+    The system scope pointed at the environment's site/ directory, for the
+    lines that wrote to it, and back. The steps name the environment's own
+    scope instead, and /etc/spack is never written to (spec 004, FR-004).
+
+- file: funcs-setup-instance.sh
+  lines: L416-L417
+  why: >-
+    The environment's module files switched from Tcl to Lmod. The sandbox's
+    Environment Modules reads Tcl, and the script refreshed Tcl modules
+    anyway (L458), which ufs-stack.yml does.

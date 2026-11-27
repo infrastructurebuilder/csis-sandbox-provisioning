@@ -17,7 +17,7 @@ build:
 
 # Syntax, ansible-lint at its strictest profile, shellcheck, and ruff on the tests.
 lint:
-    uv run ansible-playbook --syntax-check site.yml node-image.yml users.yml jupyterhub.yml push-build-cache.yml tests/render.yml tests/render-templates.yml tests/user-scope.yml tests/jupyterhub-check.yml tests/container/verify.yml
+    uv run ansible-playbook --syntax-check site.yml node-image.yml users.yml jupyterhub.yml push-build-cache.yml ufs-stack.yml tests/render.yml tests/render-templates.yml tests/user-scope.yml tests/jupyterhub-check.yml tests/container/verify.yml
     uv run ansible-lint
     shellcheck tests/container/converge.sh
     uv run ruff check tests
@@ -31,8 +31,9 @@ typecheck:
 test: lint typecheck
     uv run pytest -q
 
-# Everything in test, then apply the roles a container can take, twice (needs Docker; about ten minutes).
+# Everything in test, the tests that need the network, then apply the roles a container can take, twice, and ufs-stack.yml (needs Docker; about an hour).
 full-test: test
+    uv run pytest -q -m slow
     tests/container/converge.sh
 
 # Nothing is published from a copy inside Cloud-Sandbox.

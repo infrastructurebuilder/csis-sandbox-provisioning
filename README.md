@@ -17,6 +17,7 @@ how to follow it.
 | [site.yml](site.yml) | Builds the software stack: twelve roles, one per function of the script, in the script's order |
 | [node-image.yml](node-image.yml) | Snapshots the head node's root volume and registers the compute-node image |
 | [push-build-cache.yml](push-build-cache.yml) | Pushes a built head node's Spack environment to the RHEL 10 build cache, signed; run by hand, never by `site.yml` ([docs/BUILD-CACHE.md](docs/BUILD-CACHE.md)) |
+| [ufs-stack.yml](ufs-stack.yml) | Builds spack-stack for UFS Coastal beside the sandbox's Spack: the fork `asascience-open/spack-stack` at a commit, its environment with the sandbox's oneAPI, its meta-modules; run by hand, never by `site.yml`, and never writes to `/etc/spack` (Cloud-Sandbox's spec 004) |
 
 ## This is a translation, kept beside its original
 
@@ -162,7 +163,7 @@ You need `just`, `uv` and `shellcheck`; `full-test` also needs Docker.
 ```sh
 just init        # tool environment, and the collections: infrastructurebuilder.csis_spack (from Ansible Galaxy, >=0.0.3,<0.1.0) and amazon.aws
 just test        # syntax, ansible-lint, shellcheck, and the comparisons with the scripts
-just full-test   # also applies eight roles, users.yml and jupyterhub.yml to an AlmaLinux 10 container, twice
+just full-test   # also the network tests; applies eight roles, users.yml and jupyterhub.yml to an AlmaLinux 10 container, twice; and ufs-stack.yml, concretized only (about an hour and a half)
 ```
 
 `full-test` builds a container that stands in for a freshly booted
