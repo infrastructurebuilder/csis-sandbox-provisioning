@@ -21,8 +21,9 @@
 #   not carried (FR-005; tests/not_carried.yml).
 # - The modules are Tcl, which the sandbox's Environment Modules reads. The
 #   script switched the environment's files to Lmod and then refreshed Tcl.
-# - The sandbox's oneAPI MPI is declared in the environment: the fork's site
-#   names a later one (2021.16), through a module the sandbox does not have.
+# - The sandbox's oneAPI is declared in the environment's site scope, in place
+#   of the fork's site's entries: those name a later MPI (2021.16), and load
+#   Intel's modules, whose files Spack cannot read (spec 004's T019).
 #
 # Check mode lists what would change; before the first apply, with nothing
 # cloned yet, it says so and stops.
@@ -61,6 +62,43 @@
     ufs_stack_spack: "{{ ufs_stack_dir }}/spack/bin/spack"
     # The environment's own configuration scope, by Spack's name for it.
     ufs_stack_env_scope: "env:{{ ufs_stack_env_dir }}"
+    # The scope of the environment's site/ directory, which spack stack
+    # create env fills from the fork's site. Spack names an included scope
+    # by the environment and the real path of the directory (/save is a
+    # link on a head node), which the play finds once the clone is there.
+    ufs_stack_env_site_scope: "{{ ufs_stack_env_scope }}:{{ ufs_stack_env_real_dir.stdout }}/site"
+    # The oneAPI 2024.2 release's TBB, as the fork's site names it.
+    ufs_stack_tbb_version: "2021.13"
+    # The sandbox's oneAPI as Spack is to see it: at its prefixes, never to be
+    # built, and with no module to load. The fork's site gives each of these a
+    # list of Intel's modules, which Spack reads with "module show" while it
+    # builds; the sandbox's Intel module files hold a "®" that is not UTF-8,
+    # and Spack stops at it (UnicodeDecodeError, spec 004's T019). The
+    # sandbox's own Spack has its compilers from detection, with no modules.
+    ufs_stack_intel_externals:
+      intel-oneapi-compilers:
+        buildable: false
+        externals:
+          - spec: "intel-oneapi-compilers@{{ oneapi_version }}"
+            prefix: "{{ intel_oneapi_root }}"
+            extra_attributes:
+              compilers:
+                c: "{{ intel_oneapi_root }}/compiler/{{ oneapi_major_minor }}/bin/icx"
+                cxx: "{{ intel_oneapi_root }}/compiler/{{ oneapi_major_minor }}/bin/icpx"
+                fortran: "{{ intel_oneapi_root }}/compiler/{{ oneapi_major_minor }}/bin/ifx"
+      intel-oneapi-compilers-classic:
+        buildable: false
+        externals:
+          - spec: "intel-oneapi-compilers-classic@{{ intel_compiler_version }}"
+            prefix: "{{ intel_oneapi_root }}/compiler/{{ oneapi_major_minor }}"
+            extra_attributes:
+              compilers:
+                fortran: "{{ intel_oneapi_root }}/compiler/{{ oneapi_major_minor }}/bin/ifort"
+      intel-oneapi-tbb:
+        buildable: false
+        externals:
+          - spec: "intel-oneapi-tbb@{{ ufs_stack_tbb_version }}"
+            prefix: "{{ intel_oneapi_root }}"
     # What every step runs in: spack-stack's setup.sh (which turns Spack's
     # user and system scopes off) and the sandbox's oneAPI modules.
     ufs_stack_shell: |
@@ -138,14 +176,17 @@
         require:
           - "intel-oneapi-compilers@{{ oneapi_version }}"
           - "gcc@{{ gcc_major }}"
-      # New: the sandbox's oneAPI MKL and MPI, as its own Spack has them. The
-      # fork's site names intel-oneapi-mpi 2021.16 through the module
-      # intel/mpi/2021.16, which the sandbox does not have.
+      # New: the sandbox's oneAPI, as its own Spack has MKL and MPI, and its
+      # compilers and TBB, in place of the fork's site's entries for them:
+      # each list of externals is set exactly, so the site's, with their
+      # modules, are gone (ufs_stack_intel_externals). The fork's site also
+      # names intel-oneapi-mpi 2021.16 through the module intel/mpi/2021.16,
+      # which the sandbox does not have.
       - kind: config
         environment: activated
-        scope: "{{ ufs_stack_env_scope }}"
+        scope: "{{ ufs_stack_env_site_scope }}"
         settings:
-          packages: "{{ intel_oneapi_spack_packages }}"
+          packages: "{{ intel_oneapi_spack_packages | combine(ufs_stack_intel_externals) }}"
       # Replaces funcs-setup-instance.sh L412-L414
       # The script's MPI, 2021.13.0, is the sandbox's intel_mpi_version.
       - kind: config
@@ -236,6 +277,15 @@
         version: "{{ ufs_stack_version }}"
         recursive: true
         update: false
+
+    # New: the environment's site scope is named by its real path
+    # (ufs_stack_env_site_scope).
+    - name: Find the real path of the environment's directory
+      ansible.builtin.command:
+        cmd: "realpath -m {{ ufs_stack_env_dir }}"
+      register: ufs_stack_env_real_dir
+      changed_when: false
+      check_mode: false
 
     # New: check mode clones nothing, so before the first apply there is
     # nothing to preview the steps against.

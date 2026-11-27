@@ -402,6 +402,25 @@ case " $plays " in
                         exit 1
                     fi
                     echo "   the environment concretized: ufs-weather-model-env and sp, with oneAPI"
+                    # Spec 004's T019: no Intel external may name a module,
+                    # which Spack reads with "module show" while it builds.
+                    # shellcheck disable=SC2016 # expanded by the shell in the container
+                    if ! in_container sudo -iu ec2-user bash -c '
+                        set -e
+                        dir=$(ls -d /save/environments/spack-stack-*/)
+                        source "$dir/setup.sh" >/dev/null
+                        spack -e "$dir/envs/aws-ioossb-rhel10" config get packages > /tmp/ufs-packages.yaml
+                        python3 -c "
+import sys, yaml
+packages = yaml.safe_load(open(\"/tmp/ufs-packages.yaml\"))[\"packages\"]
+bad = [name for name, p in packages.items() if name.startswith(\"intel-oneapi\") for e in p.get(\"externals\", []) if e.get(\"modules\")]
+sys.exit(\"Intel externals with modules: \" + \", \".join(bad) if bad else 0)
+"
+                    '; then
+                        echo "FAILED: an Intel external of the environment names a module"
+                        exit 1
+                    fi
+                    echo "   no Intel external of the environment names a module"
                     etc_spack >"$logs/etc-spack.after"
                     if ! diff "$logs/etc-spack.before" "$logs/etc-spack.after"; then
                         echo "FAILED: ufs-stack.yml changed /etc/spack"
