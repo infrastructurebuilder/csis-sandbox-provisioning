@@ -169,3 +169,20 @@ def test_the_system_packages_are_the_scripts_perl_whole_and_zlibs_static_library
         "zlib-ng-compat-static",
     ]
     assert not any("lmod" in line.lower() and "dnf" in line for line in code_lines())
+
+
+def test_the_module_files_and_the_meta_modules_are_made_together() -> None:
+    # Spec 004's T020: spack_env's refresh "when needed" regenerated the
+    # module files on every run, deleting the meta-modules. Both are made
+    # when the meta-modules' directory is missing, which the play removes
+    # when the environment changed; spack_env makes no module files.
+    tasks = play()["tasks"]
+    env = next(t for t in tasks if "infrastructurebuilder.csis_spack.spack_env" in t)
+    assert "modules" not in env["infrastructurebuilder.csis_spack.spack_env"]
+    mark = next(t for t in tasks if "ansible.builtin.file" in t)
+    assert mark["ansible.builtin.file"]["path"] == "{{ ufs_stack_meta_modules_dir }}"
+    assert "ufs_stack_env_result is changed" in mark["when"]
+    after = play()["vars"]["ufs_stack_after_install"]
+    commands = [s for s in after if s["kind"] == "command"]
+    assert [s["args"][:2] for s in commands] == [["module", "tcl"], ["stack", "setup-meta-modules"]]
+    assert all(s["creates"] == "{{ ufs_stack_meta_modules_dir }}" for s in commands)

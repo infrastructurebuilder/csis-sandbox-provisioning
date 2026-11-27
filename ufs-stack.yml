@@ -231,21 +231,39 @@
         args: "{{ ['add'] + ufs_stack_extra_specs }}"
         changes: never
 
-    # After the install: the meta-modules.
+    # The meta-modules' directory: spack-stack's Tcl module root is
+    # $env/modules, and setup-meta-modules writes its modules to Core in it.
+    ufs_stack_meta_modules_dir: "{{ ufs_stack_env_dir }}/modules/Core"
+
+    # After the install: the module files and the meta-modules, together.
+    # Both are made when the meta-modules' directory is missing, which the
+    # play makes it whenever spack_env concretized or installed something.
+    # spack_env's own refresh is not used: setup-meta-modules rewrites the
+    # Tcl module files Spack has made, so a refresh "when needed" would find
+    # them changed on every run, regenerate them, and so delete the
+    # meta-modules (spec 004's T020). And the collection's spack_env (0.0.3)
+    # does not expand $env in a module root.
     ufs_stack_after_install:
       # Replaces funcs-setup-instance.sh L433 L435 L439-L440
       - kind: environment
         name: activated
         shell: "{{ ufs_stack_activate }}"
+      # Replaces funcs-setup-instance.sh L458
+      # With --delete-tree: module files of packages no longer in the
+      # environment go.
+      - kind: command
+        environment: activated
+        env: "{{ ufs_stack_env_dir }}"
+        args: [module, tcl, refresh, -y, --delete-tree]
+        changes: creates
+        creates: "{{ ufs_stack_meta_modules_dir }}"
       # Replaces funcs-setup-instance.sh L463
-      # spack-stack puts them in the module root's Core directory, which it
-      # makes first.
       - kind: command
         environment: activated
         env: "{{ ufs_stack_env_dir }}"
         args: [stack, setup-meta-modules]
         changes: creates
-        creates: "{{ ufs_stack_env_dir }}/modules/Core"
+        creates: "{{ ufs_stack_meta_modules_dir }}"
 
   tasks:
     # New: the script cloned a branch (L347). A branch moves, so the version
@@ -349,23 +367,32 @@
         spack_setup_executable: "{{ ufs_stack_spack }}"
         spack_setup: "{{ ufs_stack_setup }}"
 
-    # Replaces funcs-setup-instance.sh L446 L448 L455 L458
+    # Replaces funcs-setup-instance.sh L446 L448 L455
     # The environment the steps captured, activated, is what Spack runs in.
     # Concretized fresh, as the script did; installed only when it is to be.
-    - name: Concretize and install the environment, and refresh its modules
+    # The module files are made after it, with the meta-modules.
+    - name: Concretize and install the environment
       infrastructurebuilder.csis_spack.spack_env:
         spack: "{{ ufs_stack_spack }}"
         path: "{{ ufs_stack_env_dir }}"
         state: "{{ 'installed' if ufs_stack_install | bool else 'concretized' }}"
         fresh: true
         install_args: [--fail-fast, --jobs, "{{ spack_jobs }}"]
-        modules: "{{ ['tcl'] if ufs_stack_install | bool else [] }}"
-        refresh_modules: when_needed
       environment: >-
         {{ (spack_setup_results | selectattr('kind', 'equalto', 'environment') | last).result.environment }}
+      register: ufs_stack_env_result
 
-    # New: the meta-modules need what was installed.
-    - name: Set up the meta-modules
+    # New: what spack_env changed makes the module files and the
+    # meta-modules out of date; without their directory, the steps below
+    # make them again.
+    - name: Mark the module files out of date when the environment changed
+      ansible.builtin.file:
+        path: "{{ ufs_stack_meta_modules_dir }}"
+        state: absent
+      when: ufs_stack_install | bool and ufs_stack_env_result is changed
+
+    # New: the module files and the meta-modules need what was installed.
+    - name: Make the module files and the meta-modules
       ansible.builtin.include_role:
         name: infrastructurebuilder.csis_spack.setup
       vars:
