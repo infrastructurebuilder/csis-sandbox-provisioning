@@ -199,3 +199,17 @@ def test_the_stacks_mpi_module_sets_i_mpi_root() -> None:
     assert step["scope"] == "{{ ufs_stack_env_scope }}"
     settings = step["settings"]["modules"]["default"]["tcl"]["intel-oneapi-mpi"]["environment"]["set"]
     assert settings["I_MPI_ROOT"] == "{prefix}/mpi/{version}"
+
+
+def test_the_versions_are_the_sandboxs_not_ufs_envars() -> None:
+    # Cloud-Sandbox's spec 004, FR-005 and its converge (T043): the playbook
+    # takes the sandbox's oneAPI, MPI and GCC from group_vars/all.yml, names
+    # no version of its own for them, and says why it does not take those of
+    # csis-sandbox-ops' ufs-envars.sh.
+    names = {"oneapi_version", "intel_mpi_version", "intel_compiler_version", "gcc_version", "gcc_major"}
+    assert not names & set(play()["vars"])
+    text = PLAYBOOK.read_text()
+    for used in ("oneapi_version", "intel_mpi_version", "gcc_major"):
+        assert "{{ " + used + " }}" in text, used
+    header = text.split("\n- name:")[0]
+    assert "ufs-envars.sh" in header and "2021.16.0" in header

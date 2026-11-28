@@ -6,8 +6,9 @@
 #   ansible-playbook -i inventories/local/hosts.yml ufs-stack.yml --check
 #   ansible-playbook -i inventories/local/hosts.yml ufs-stack.yml
 #
-# Run by hand on a head node that site.yml has built, and never by it. It
-# replaces two functions of legacy/funcs-setup-instance.sh that
+# Run by hand on a head node that site.yml has built, and never by it; when,
+# how long and what it leaves are in docs/SPACK-STACK.md. It replaces three
+# functions of legacy/funcs-setup-instance.sh that
 # setup-instance.sh never called: install_spack-stack_prereqs (L303),
 # setup_spack-stack (L340) and build_spack-stack-environment (L428), which
 # csis-sandbox-ops' add-ufs-setup.sh called in that order. What differs from
@@ -30,9 +31,17 @@
 # - The sandbox's oneAPI is declared in the environment's site scope, in place
 #   of the fork's site's entries: those name a later MPI (2021.16), and load
 #   Intel's modules, whose files Spack cannot read (spec 004's T019).
+# - The versions are the sandbox's own (group_vars/all.yml: oneAPI
+#   oneapi_version, MPI intel_mpi_version, RHEL 10's GCC gcc_major), not those
+#   of csis-sandbox-ops' bin/ufs-envars.sh, which add-ufs-setup.sh sourced
+#   (MPI 2021.16.0, ESMF 8.5.0, GCC 13.3.1, Spack v0.22.5): the stack is built
+#   with the compilers and MPI the node has, ESMF comes from the fork's
+#   template (8.8.0), and the fork's own Spack is used.
 #
 # Check mode lists what would change; before the first apply, with nothing
-# cloned yet, it says so and stops.
+# cloned yet, it says so and stops. On a built node it reports more than
+# would change: the collection's spack_env previews from a copy of the
+# environment, whose $env/install holds nothing (docs/SPACK-STACK.md).
 
 - name: Build spack-stack for UFS Coastal
   hosts: sandbox_head
