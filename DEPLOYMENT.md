@@ -114,7 +114,9 @@ Two playbooks are applied by hand when a site wants them:
   its own Spack, in `/save/environments/spack-stack-<commit>`. The first
   apply compiles the whole environment, which takes hours: run it in
   `tmux`. UFS Coastal's `setup.sh` (`csis-model-ufscoastal`) then builds
-  the model against it.
+  the model against it. [docs/SPACK-STACK.md](docs/SPACK-STACK.md) says
+  when to run it, how long it takes and which release it needs (0.0.10 or
+  later).
 
 Run `node-image.yml` again afterwards if the compute nodes should have
 these changes too.
