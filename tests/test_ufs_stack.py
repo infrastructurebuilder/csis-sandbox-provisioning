@@ -213,3 +213,17 @@ def test_the_versions_are_the_sandboxs_not_ufs_envars() -> None:
         assert "{{ " + used + " }}" in text, used
     header = text.split("\n- name:")[0]
     assert "ufs-envars.sh" in header and "2021.16.0" in header
+
+
+def test_the_page_on_spack_stack_says_what_the_playbook_does() -> None:
+    # Cloud-Sandbox's spec 004 (T051): docs/SPACK-STACK.md names the commit,
+    # the site and template, the system packages and the meta-modules'
+    # directory that the playbook uses.
+    page = (UNIT / "docs" / "SPACK-STACK.md").read_text()
+    values = play()["vars"]
+    for name in ("ufs_stack_version", "ufs_stack_site", "ufs_stack_template", "ufs_stack_env_name"):
+        assert values[name] in page, name
+    for package in values["ufs_stack_system_packages"]:
+        assert f"`{package}`" in page, package
+    assert "modules/Core" in page
+    assert "docs/SPACK-STACK.md" in PLAYBOOK.read_text()

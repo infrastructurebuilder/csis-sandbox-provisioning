@@ -68,10 +68,10 @@ environment (74 packages, once, on the proof's node).
   others).
 - **System packages** spack-stack's build needs, installed with dnf before the
   clone: the old script's six (`binutils-devel`, `git-lfs`, `bash-completion`,
-  `xorg-x11-xauth`, `perl-IPC-Cmd`, `gettext-devel`), Perl whole (RHEL 10's
-  `perl-interpreter` lacks `FindBin`, which OpenSSL's build needs) and zlib's
-  static library (the system zlib's CMake files name it, and HDF5's CMake
-  stops without it).
+  `xorg-x11-xauth`, `perl-IPC-Cmd`, `gettext-devel`), Perl whole (`perl`:
+  RHEL 10's `perl-interpreter` lacks `FindBin`, which OpenSSL's build needs)
+  and zlib's static library (`zlib-ng-compat-static`: the system zlib's CMake
+  files name it, and HDF5's CMake stops without it).
 
 To use the stack, as UFS Coastal's module file does:
 
