@@ -182,7 +182,20 @@ def test_the_module_files_and_the_meta_modules_are_made_together() -> None:
     mark = next(t for t in tasks if "ansible.builtin.file" in t)
     assert mark["ansible.builtin.file"]["path"] == "{{ ufs_stack_meta_modules_dir }}"
     assert "ufs_stack_env_result is changed" in mark["when"]
+    assert "ufs_stack_module_settings_changed" in mark["when"]
     after = play()["vars"]["ufs_stack_after_install"]
     commands = [s for s in after if s["kind"] == "command"]
     assert [s["args"][:2] for s in commands] == [["module", "tcl"], ["stack", "setup-meta-modules"]]
     assert all(s["creates"] == "{{ ufs_stack_meta_modules_dir }}" for s in commands)
+
+
+def test_the_stacks_mpi_module_sets_i_mpi_root() -> None:
+    # Spec 004's T023: Intel MPI's wrappers need I_MPI_ROOT, which the module
+    # Spack makes for an external MPI does not set; UFS Coastal's "use mpi"
+    # failed without it. The step's label is what marks the module files out
+    # of date when it changes.
+    steps = play()["vars"]["ufs_stack_setup"]
+    step = next(s for s in steps if s.get("label") == "the MPI module's settings")
+    assert step["scope"] == "{{ ufs_stack_env_scope }}"
+    settings = step["settings"]["modules"]["default"]["tcl"]["intel-oneapi-mpi"]["environment"]["set"]
+    assert settings["I_MPI_ROOT"] == "{prefix}/mpi/{version}"

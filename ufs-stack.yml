@@ -222,6 +222,25 @@
           concretizer:
             targets:
               granularity: generic
+      # New: the module file Spack makes for the sandbox's MPI, an external
+      # with no module of its own, sets no I_MPI_ROOT, and Intel MPI's
+      # compiler wrappers need it: without it their include paths are
+      # "I_MPI_SUBSTITUTE_INSTALLDIR/include", and a Fortran "use mpi" fails
+      # (UFS Coastal's build, spec 004's T023). What the sandbox's own Intel
+      # module sets, set in the stack's.
+      - kind: config
+        label: the MPI module's settings
+        environment: activated
+        scope: "{{ ufs_stack_env_scope }}"
+        settings:
+          modules:
+            default:
+              tcl:
+                intel-oneapi-mpi:
+                  environment:
+                    set:
+                      I_MPI_ROOT: "{prefix}/mpi/{version}"
+                      FI_PROVIDER_PATH: "{prefix}/mpi/{version}/opt/mpi/libfabric/lib/prov:/usr/lib64/libfabric"
       # Replaces funcs-setup-instance.sh L442-L444
       # "spack add" of a spec the environment lists already does nothing; when
       # it adds one, the concretization that follows reports the change.
@@ -382,14 +401,21 @@
         {{ (spack_setup_results | selectattr('kind', 'equalto', 'environment') | last).result.environment }}
       register: ufs_stack_env_result
 
-    # New: what spack_env changed makes the module files and the
-    # meta-modules out of date; without their directory, the steps below
-    # make them again.
+    # New: what spack_env changed, or a change to the module files'
+    # settings, makes the module files and the meta-modules out of date;
+    # without their directory, the steps below make them again.
     - name: Mark the module files out of date when the environment changed
       ansible.builtin.file:
         path: "{{ ufs_stack_meta_modules_dir }}"
         state: absent
-      when: ufs_stack_install | bool and ufs_stack_env_result is changed
+      when: >-
+        ufs_stack_install | bool and (ufs_stack_env_result is changed
+        or ufs_stack_module_settings_changed | bool)
+      vars:
+        # A change to the module files' settings makes them out of date too.
+        ufs_stack_module_settings_changed: >-
+          {{ spack_setup_results | selectattr('label', 'equalto', "the MPI module's settings")
+             | map(attribute='changed') | first | default(false) }}
 
     # New: the module files and the meta-modules need what was installed.
     - name: Make the module files and the meta-modules
