@@ -1,6 +1,6 @@
 [project]
 name = "sandbox-provisioning"
-version = "0.0.9"
+version = "0.0.10"
 description = "Ansible playbooks that build the Cloud Sandbox software stack on a head node"
 requires-python = ">=3.12"
 dependencies = []
